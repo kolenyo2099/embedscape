@@ -13,7 +13,10 @@
       <p>Explore your data semantically (and privatelly)• Text ↔ Image semantic search</p>
     </header>
 
-    <div class="panel" id="upload">
+    <div class="main-layout">
+      <!-- Left column: Controls -->
+      <div class="controls-column">
+        <div class="panel" id="upload">
       <h2>1) Load data</h2>
       <div class="two-col">
         <div>
@@ -94,7 +97,7 @@
     </div>
 
     <div class="panel" id="search" style="display:none">
-      <h2>3) Semantic search</h2>
+      <h2>3) Semantic search & Tagging</h2>
       <div class="row">
         <div>
           <label>Query type</label>
@@ -105,7 +108,7 @@
         </div>
         <div>
           <label>Text query</label>
-          <input type="text" id="q" placeholder="e.g. airstrike on town civilians…" />
+          <input type="text" id="q" placeholder="e.g. a red dog" />
         </div>
         <div>
           <label>Upload image</label>
@@ -126,13 +129,64 @@
         </div>
       </div>
       <div id="results" class="info-box" style="margin-top:10px"></div>
-    </div>
 
-    <div class="panel" id="viz" style="display:none">
-      <h2>4) Visualization</h2>
-      <div id="graph-container"></div>
+      <!-- Tagging Section -->
+      <div style="margin-top:20px; padding-top:20px; border-top:2px solid #fee2e2">
+        <h3 style="margin-bottom:12px; color:#dc2626">🏷️ Manual Tagging</h3>
+        <div class="row">
+          <div>
+            <label>Selection mode</label>
+            <select id="selection-mode">
+              <option value="off">Off (click to view)</option>
+              <option value="single">Single select</option>
+              <option value="multi">Multi-select (Ctrl+Click)</option>
+            </select>
+          </div>
+          <div>
+            <label>Selected: <span id="selected-count" class="pill">0</span></label>
+            <button id="clear-selection" class="secondary-btn">Clear Selection</button>
+          </div>
+        </div>
+
+        <div style="margin-top:12px" id="tag-controls">
+          <label>Add tags to selected items</label>
+          <div class="btn-row">
+            <input type="text" id="new-tag" placeholder="Enter tag name..." style="flex:1; max-width:300px" />
+            <button id="add-tag-btn" class="primary-btn">+ Add Tag</button>
+            <button id="remove-tag-btn" class="secondary-btn">- Remove Tag</button>
+          </div>
+
+          <div id="current-tags" style="margin-top:10px"></div>
+        </div>
+
+        <div style="margin-top:12px">
+          <label>Visualization</label>
+          <div class="btn-row">
+            <select id="color-mode">
+              <option value="cluster">Color by Cluster</option>
+              <option value="tag">Color by Tag</option>
+            </select>
+            <select id="tag-filter" multiple style="min-height:40px">
+              <option value="all" selected>All items</option>
+            </select>
+          </div>
+          <div class="muted small" style="margin-top:6px">Hold Ctrl/Cmd to select multiple tags to filter</div>
+        </div>
+
+        <div id="all-tags" style="margin-top:12px"></div>
+      </div>
     </div>
-  </div>
+      </div><!-- End controls-column -->
+
+      <!-- Right column: Visualization -->
+      <div class="viz-column">
+        <div class="panel" id="viz" style="display:none">
+          <h2>4) Visualization</h2>
+          <div id="graph-container"></div>
+        </div>
+      </div><!-- End viz-column -->
+    </div><!-- End main-layout -->
+  </div><!-- End container -->
 
   <!-- Help Modal -->
   <div id="help-modal" class="modal">
@@ -156,10 +210,20 @@
       </ul>
       <p style="margin-top:10px">The app will generate embeddings, cluster them using k-means, and reduce to 2D with UMAP for visualization.</p>
 
-      <h3 style="margin-top:20px; margin-bottom:10px">3️⃣ Semantic Search</h3>
+      <h3 style="margin-top:20px; margin-bottom:10px">3️⃣ Semantic Search & Tagging</h3>
       <p><strong>Text Search:</strong> Enter any text query to find semantically similar items.</p>
       <p style="margin-top:8px"><strong>Image Search:</strong> (Multimodal only) Upload an image to find similar text/images.</p>
       <p style="margin-top:10px"><strong>💡 Tip:</strong> Click on individual search results to zoom in and highlight that specific node!</p>
+
+      <p style="margin-top:12px"><strong>Manual Tagging:</strong></p>
+      <ul style="margin-left:20px; margin-top:8px; line-height:1.6">
+        <li><strong>Selection modes:</strong> Switch to "Single select" or "Multi-select" to tag items</li>
+        <li><strong>Multi-select:</strong> Hold Ctrl/Cmd and click to select multiple nodes</li>
+        <li><strong>Add tags:</strong> Type a tag name and click "+ Add Tag" to tag selected nodes</li>
+        <li><strong>Color by Tag:</strong> Switch visualization coloring from clusters to tags</li>
+        <li><strong>Filter by tags:</strong> Select tags to show only those items</li>
+        <li><strong>Tags persist:</strong> Your tags are saved with the session JSON file</li>
+      </ul>
 
       <h3 style="margin-top:20px; margin-bottom:10px">4️⃣ Interactive Visualization</h3>
       <ul style="margin-left:20px; margin-top:8px; line-height:1.6">

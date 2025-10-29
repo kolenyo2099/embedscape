@@ -21,6 +21,13 @@ let nodes = [];
 let searchVec = null;
 let highlightedNodes = new Set();  // Track highlighted nodes for search
 
+// Tagging system
+let selectedNodes = new Set();  // Track selected nodes for tagging
+let allTags = new Map();  // tag name -> Set of node ids
+let colorMode = 'cluster';  // 'cluster' or 'tag'
+let selectionMode = 'off';  // 'off', 'single', or 'multi'
+let tagColors = {};  // tag name -> color
+
 let deckInstance = null;
 let currentViewState = null;  // Track current view state for animations
 let worker = null;
@@ -60,6 +67,18 @@ const clearBtn = el('clear');
 const th = el('th');
 const thval = el('thval');
 const results = el('results');
+
+// Tagging UI elements
+const selectionModeEl = el('selection-mode');
+const selectedCountEl = el('selected-count');
+const clearSelectionBtn = el('clear-selection');
+const newTagInput = el('new-tag');
+const addTagBtn = el('add-tag-btn');
+const removeTagBtn = el('remove-tag-btn');
+const currentTagsEl = el('current-tags');
+const colorModeEl = el('color-mode');
+const tagFilterEl = el('tag-filter');
+const allTagsEl = el('all-tags');
 
 // Hardcoded node size - good default for UMAP coordinate space
 const DEFAULT_NODE_SIZE = 0.05;
@@ -112,6 +131,15 @@ embFile.addEventListener('change', async (e) => {
   // Ensure we keep the original embedding mode for consistent querying
   if (!cfg._embedMode) { cfg._embedMode = cfg.mode; }
 
+  // Restore tags if present
+  if (data.tags) {
+    allTags = new Map(Object.entries(data.tags.allTags || {}).map(([tag, ids]) => [tag, new Set(ids)]));
+    tagColors = data.tags.tagColors || {};
+  } else {
+    allTags = new Map();
+    tagColors = {};
+  }
+
   [textCol, labelCol, linkCol, imageCol].forEach(sel => { sel.innerHTML = ''; });
   fields.forEach(col => {
     textCol.appendChild(new Option(col, col));
@@ -130,6 +158,19 @@ embFile.addEventListener('change', async (e) => {
   updateUI();
 
   await buildNodesAndViz();
+
+  // Restore node tags after nodes are built
+  if (data.tags && data.tags.nodeTags) {
+    data.tags.nodeTags.forEach((tagArray, i) => {
+      if (nodes[i]) {
+        nodes[i].tags = new Set(tagArray || []);
+      }
+    });
+  }
+
+  // Update tag UI
+  updateTagUI();
+
   el('search').style.display = 'block';
   viz.style.display = 'block';
   saveBtn.disabled = false;
@@ -153,11 +194,34 @@ embFile.addEventListener('change', async (e) => {
 });
 
 saveBtn.addEventListener('click', () => {
-  const payload = { version: '2.0', timestamp: new Date().toISOString(), csv, cfg, embeddings, coords, clusters };
+  // Serialize tags data
+  const tagsData = {
+    allTags: Object.fromEntries(Array.from(allTags.entries()).map(([tag, ids]) => [tag, Array.from(ids)])),
+    tagColors: tagColors,
+    nodeTags: nodes.map(n => n.tags ? Array.from(n.tags) : [])
+  };
+
+  const payload = {
+    version: '2.1',
+    timestamp: new Date().toISOString(),
+    csv,
+    cfg,
+    embeddings,
+    coords,
+    clusters,
+    tags: tagsData
+  };
+
   const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = `embeddings_${Date.now()}.json`; a.click(); URL.revokeObjectURL(url);
-  saveMsg.style.display = 'block'; saveMsg.textContent = `✅ Saved ${embeddings.length} vectors.`; setTimeout(() => saveMsg.style.display = 'none', 2500);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `embeddings_${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  saveMsg.style.display = 'block';
+  saveMsg.textContent = `✅ Saved ${embeddings.length} vectors + tags.`;
+  setTimeout(() => saveMsg.style.display = 'none', 2500);
 });
 
 const updateUI = () => {
@@ -320,6 +384,174 @@ clearBtn.addEventListener('click', () => {
   paintMatches(new Set());
 });
 
+// ---- Tagging System Event Handlers ----
+
+selectionModeEl?.addEventListener('change', () => {
+  selectionMode = selectionModeEl.value;
+  if (selectionMode === 'off') {
+    selectedNodes.clear();
+    updateSelectionUI();
+    refreshVisualization();
+  }
+});
+
+clearSelectionBtn?.addEventListener('click', () => {
+  selectedNodes.clear();
+  updateSelectionUI();
+  refreshVisualization();
+});
+
+addTagBtn?.addEventListener('click', () => {
+  const tagName = newTagInput.value.trim();
+  if (!tagName) {
+    alert('Enter a tag name');
+    return;
+  }
+  if (selectedNodes.size === 0) {
+    alert('Select nodes first');
+    return;
+  }
+
+  // Add tag to selected nodes
+  if (!allTags.has(tagName)) {
+    allTags.set(tagName, new Set());
+    // Assign a color to new tag
+    const colorIndex = allTags.size - 1;
+    tagColors[tagName] = colors[colorIndex % colors.length];
+  }
+
+  selectedNodes.forEach(nodeId => {
+    allTags.get(tagName).add(nodeId);
+    if (!nodes[nodeId].tags) nodes[nodeId].tags = new Set();
+    nodes[nodeId].tags.add(tagName);
+  });
+
+  newTagInput.value = '';
+  updateTagUI();
+  refreshVisualization();
+});
+
+removeTagBtn?.addEventListener('click', () => {
+  const tagName = newTagInput.value.trim();
+  if (!tagName) {
+    alert('Enter a tag name to remove');
+    return;
+  }
+  if (selectedNodes.size === 0) {
+    alert('Select nodes first');
+    return;
+  }
+
+  if (!allTags.has(tagName)) {
+    alert('Tag does not exist');
+    return;
+  }
+
+  selectedNodes.forEach(nodeId => {
+    allTags.get(tagName).delete(nodeId);
+    if (nodes[nodeId].tags) {
+      nodes[nodeId].tags.delete(tagName);
+    }
+  });
+
+  // Remove tag entirely if no nodes have it
+  if (allTags.get(tagName).size === 0) {
+    allTags.delete(tagName);
+    delete tagColors[tagName];
+  }
+
+  newTagInput.value = '';
+  updateTagUI();
+  refreshVisualization();
+});
+
+colorModeEl?.addEventListener('change', () => {
+  colorMode = colorModeEl.value;
+  refreshVisualization();
+});
+
+tagFilterEl?.addEventListener('change', () => {
+  refreshVisualization();
+});
+
+function updateSelectionUI() {
+  if (selectedCountEl) {
+    selectedCountEl.textContent = selectedNodes.size.toString();
+  }
+
+  // Show tags common to selected nodes
+  if (currentTagsEl && selectedNodes.size > 0) {
+    const tagCounts = new Map();
+    selectedNodes.forEach(nodeId => {
+      const node = nodes[nodeId];
+      if (node.tags) {
+        node.tags.forEach(tag => {
+          tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+        });
+      }
+    });
+
+    currentTagsEl.innerHTML = tagCounts.size === 0
+      ? '<div class="muted small">No tags on selected items</div>'
+      : '<div class="muted small">Tags on selected items:</div>' +
+        Array.from(tagCounts.entries()).map(([tag, count]) =>
+          `<span class="tag-badge">${esc(tag)} (${count}/${selectedNodes.size})</span>`
+        ).join('');
+  } else if (currentTagsEl) {
+    currentTagsEl.innerHTML = '<div class="muted small">Select items to view/add tags</div>';
+  }
+}
+
+function updateTagUI() {
+  updateSelectionUI();
+
+  // Update tag filter dropdown
+  if (tagFilterEl) {
+    const selectedFilters = Array.from(tagFilterEl.selectedOptions).map(o => o.value);
+    tagFilterEl.innerHTML = '<option value="all">All items</option>';
+    allTags.forEach((nodeIds, tagName) => {
+      const opt = document.createElement('option');
+      opt.value = tagName;
+      opt.textContent = `${tagName} (${nodeIds.size})`;
+      if (selectedFilters.includes(tagName)) opt.selected = true;
+      tagFilterEl.appendChild(opt);
+    });
+  }
+
+  // Show all tags
+  if (allTagsEl) {
+    if (allTags.size === 0) {
+      allTagsEl.style.display = 'none';
+    } else {
+      allTagsEl.style.display = 'block';
+      allTagsEl.innerHTML = '<div class="muted small">All tags:</div>' +
+        Array.from(allTags.entries()).map(([tag, nodeIds]) =>
+          `<span class="tag-badge" style="background:${tagColors[tag]}">${esc(tag)} (${nodeIds.size})</span>`
+        ).join('');
+    }
+  }
+}
+
+function refreshVisualization() {
+  if (!deckInstance || !deckInstance._createLayer) return;
+
+  // Get filtered node IDs
+  const selectedFilters = tagFilterEl ? Array.from(tagFilterEl.selectedOptions).map(o => o.value) : [];
+  let filteredNodeIds = null;
+
+  if (selectedFilters.length > 0 && !selectedFilters.includes('all')) {
+    filteredNodeIds = new Set();
+    selectedFilters.forEach(tagName => {
+      if (allTags.has(tagName)) {
+        allTags.get(tagName).forEach(nodeId => filteredNodeIds.add(nodeId));
+      }
+    });
+  }
+
+  const newLayer = deckInstance._createLayer(highlightedNodes, selectedNodes, filteredNodeIds);
+  deckInstance.setProps({ layers: [newLayer] });
+}
+
 function setupWorkerHandlers() {
   if (!worker) return;
 
@@ -442,7 +674,7 @@ async function buildNodesAndViz() {
   const canvas = document.createElement('canvas');
   canvas.id = 'deck-canvas';
   canvas.style.width = '100%';
-  canvas.style.height = '720px';
+  canvas.style.height = '100%';
   g.appendChild(canvas);
 
   // Build nodes array with UMAP coordinates
@@ -453,7 +685,8 @@ async function buildNodesAndViz() {
     text: cfg.text ? csv[i][cfg.text] : '',
     label: cfg.label ? csv[i][cfg.label] : `Row ${i + 1}`,
     link: cfg.link ? csv[i][cfg.link] : null,
-    image: cfg.image ? csv[i][cfg.image] : null
+    image: cfg.image ? csv[i][cfg.image] : null,
+    tags: new Set()  // Initialize empty tag set
   }));
 
   // Calculate center point for initial view
@@ -470,14 +703,19 @@ async function buildNodesAndViz() {
   const initialZoom = maxSpan > 0 ? Math.log2(containerWidth / (maxSpan * 1.5)) : 0;
 
   // Create the scatter plot layer
-  const createLayer = (highlightedIndices = new Set()) => {
+  const createLayer = (highlightedIndices = new Set(), selectedIndices = new Set(), filteredIndices = null) => {
     const baseRadius = DEFAULT_NODE_SIZE;
-    // Convert Set to Array for updateTriggers (Sets don't trigger updates properly)
+    // Convert Sets to Arrays for updateTriggers
     const highlightedArray = Array.from(highlightedIndices);
+    const selectedArray = Array.from(selectedIndices);
+    const filterArray = filteredIndices ? Array.from(filteredIndices) : null;
+
+    // Filter data if needed
+    const displayData = filteredIndices ? nodes.filter(n => filteredIndices.has(n.id)) : nodes;
 
     return new ScatterplotLayer({
       id: 'scatter-layer',
-      data: nodes,
+      data: displayData,
       pickable: true,
       opacity: 1,
       stroked: true,
@@ -490,23 +728,48 @@ async function buildNodesAndViz() {
       lineWidthUnits: 'common',
       lineWidthMinPixels: 1,
       getPosition: d => d.position,
-      getRadius: d => highlightedIndices.has(d.id) ? baseRadius * 2.5 : baseRadius,
+      getRadius: d => {
+        if (highlightedIndices.has(d.id)) return baseRadius * 2.5;
+        if (selectedIndices.has(d.id)) return baseRadius * 1.8;
+        return baseRadius;
+      },
       getFillColor: d => {
+        // Search results (gold)
         if (highlightedIndices.has(d.id)) {
-          return [255, 215, 0, 255];  // Gold for search matches - more visible
+          return [255, 215, 0, 255];
         }
+        // Selected nodes (cyan)
+        if (selectedIndices.has(d.id)) {
+          return [0, 255, 255, 200];
+        }
+        // Color by tag mode
+        if (colorMode === 'tag' && d.tags && d.tags.size > 0) {
+          const firstTag = Array.from(d.tags)[0];
+          const tagColor = tagColors[firstTag] || colors[0];
+          const rgb = hexToRgb(tagColor);
+          return [rgb.r, rgb.g, rgb.b, 255];
+        }
+        // Default: color by cluster
         const color = colors[d.cluster % colors.length];
         const rgb = hexToRgb(color);
         return [rgb.r, rgb.g, rgb.b, 255];
       },
-      getLineColor: d => highlightedIndices.has(d.id) ? [255, 0, 0, 255] : [0, 0, 0, 80],
-      getLineWidth: d => highlightedIndices.has(d.id) ? baseRadius * 0.3 : baseRadius * 0.1,
-      // Tell deck.gl to recalculate these attributes when highlights change
+      getLineColor: d => {
+        if (highlightedIndices.has(d.id)) return [255, 0, 0, 255];
+        if (selectedIndices.has(d.id)) return [0, 200, 200, 255];
+        return [0, 0, 0, 80];
+      },
+      getLineWidth: d => {
+        if (highlightedIndices.has(d.id)) return baseRadius * 0.3;
+        if (selectedIndices.has(d.id)) return baseRadius * 0.2;
+        return baseRadius * 0.1;
+      },
+      // Tell deck.gl to recalculate these attributes when state changes
       updateTriggers: {
-        getRadius: highlightedArray,
-        getFillColor: highlightedArray,
-        getLineColor: highlightedArray,
-        getLineWidth: highlightedArray
+        getRadius: [highlightedArray, selectedArray, colorMode],
+        getFillColor: [highlightedArray, selectedArray, colorMode, filterArray],
+        getLineColor: [highlightedArray, selectedArray],
+        getLineWidth: [highlightedArray, selectedArray]
       }
     });
   };
@@ -521,7 +784,7 @@ async function buildNodesAndViz() {
   deckInstance = new Deck({
     canvas: 'deck-canvas',
     width: '100%',
-    height: '720px',
+    height: '100%',
     glOptions: { alpha: false }, // make canvas opaque to avoid dark halos on blending
     parameters: { clearColor: [1, 1, 1, 1] }, // clear to white each frame
     views: [new OrthographicView({ controller: true })],
@@ -532,15 +795,43 @@ async function buildNodesAndViz() {
       deckInstance.setProps({ viewState: currentViewState });
     },
     layers: [createLayer()],
-    onClick: (info) => {
+    onClick: (info, event) => {
       if (info.object) {
-        showModal(info.object, info.object.id);
+        const nodeId = info.object.id;
+
+        // Handle selection mode
+        if (selectionMode === 'single') {
+          selectedNodes.clear();
+          selectedNodes.add(nodeId);
+          updateSelectionUI();
+          refreshVisualization();
+        } else if (selectionMode === 'multi') {
+          if (event.srcEvent?.ctrlKey || event.srcEvent?.metaKey) {
+            // Toggle selection with Ctrl/Cmd
+            if (selectedNodes.has(nodeId)) {
+              selectedNodes.delete(nodeId);
+            } else {
+              selectedNodes.add(nodeId);
+            }
+            updateSelectionUI();
+            refreshVisualization();
+          } else {
+            // Without Ctrl/Cmd, show modal
+            showModal(info.object, nodeId);
+          }
+        } else {
+          // Off mode - just show modal
+          showModal(info.object, nodeId);
+        }
       }
     },
     getTooltip: ({ object }) => {
       if (object) {
+        const tagList = object.tags && object.tags.size > 0
+          ? '<br><span style="font-size:0.9em">Tags: ' + Array.from(object.tags).map(t => `<span style="background:#dc2626;padding:2px 4px;border-radius:3px;margin:2px">${esc(t)}</span>`).join(' ') + '</span>'
+          : '';
         return {
-          html: `<strong>${esc(object.label)}</strong>`,
+          html: `<strong>${esc(object.label)}</strong>${tagList}`,
           style: {
             backgroundColor: '#333',
             color: '#fff',
@@ -554,14 +845,16 @@ async function buildNodesAndViz() {
 
   // Store the layer creator for updates
   deckInstance._createLayer = createLayer;
+
+  // Initialize tag UI
+  updateTagUI();
 }
 
 function paintMatches(set) {
   if (!deckInstance || !deckInstance._createLayer) return;
 
   highlightedNodes = set;  // Store for later updates
-  const newLayer = deckInstance._createLayer(set);
-  deckInstance.setProps({ layers: [newLayer] });
+  refreshVisualization();
 }
 
 function showModal(data, idx) {
