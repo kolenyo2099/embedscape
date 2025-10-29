@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>EmbedScape — Interactive Embedding Visualization</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>EmbedScape<span class="help-btn" id="help-btn">?</span></h1>
+      <p>Explore your data semantically (and privatelly)• Text ↔ Image semantic search</p>
+    </header>
+
+    <div class="panel" id="upload">
+      <h2>1) Load data</h2>
+      <div class="two-col">
+        <div>
+          <label>CSV file (UTF-8, header row)</label>
+          <input type="file" id="csv-file" accept=".csv" />
+          <div id="file-info" class="info-box" style="margin-top:10px"></div>
+        </div>
+        <div>
+          <label>Or load a saved session (.json)</label>
+          <div class="btn-row">
+            <button id="load-emb-btn" class="secondary-btn">📂 Load Saved</button>
+            <input type="file" id="emb-file" accept="application/json" style="display:none" />
+            <button id="save-emb-btn" class="primary-btn" disabled>💾 Save Session</button>
+          </div>
+          <div id="save-msg" class="info-box" style="display:none;margin-top:10px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="config" style="display:none">
+      <h2>2) Configure columns & model</h2>
+      <div class="row">
+        <div>
+          <label>Text column (optional)</label>
+          <select id="text-col"><option value="">None</option></select>
+        </div>
+        <div>
+          <label>Label column (optional)</label>
+          <select id="label-col"><option value="">None</option></select>
+        </div>
+        <div>
+          <label>Link column (optional)</label>
+          <select id="link-col"><option value="">None</option></select>
+        </div>
+        <div>
+          <label>Image URL column (optional)</label>
+          <select id="image-col"><option value="">None</option></select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div>
+          <label>Embedding mode</label>
+          <select id="mode">
+            <option value="text">Text only — all-MiniLM-L6-v2 (fast)</option>
+            <option value="multimodal">Multimodal — CLIP ViT-B/32 (text ↔ image)</option>
+          </select>
+          <div class="muted small" style="margin-top:6px">Use <span class="pill">multimodal</span> for text↔image. Otherwise <b>text</b> is faster.</div>
+        </div>
+        <div>
+          <label>Embed from</label>
+          <select id="source">
+            <option value="text">Text column</option>
+            <option value="image">Image column</option>
+            <option value="both">Both (average normalized)</option>
+          </select>
+          <div class="muted small" style="margin-top:6px">Only relevant when your CSV has images. In <b>multimodal</b>, both map to the same space.</div>
+        </div>
+        <div>
+          <label>Batch size</label>
+          <input type="number" id="batch" value="16" min="1" max="64" />
+          <div class="muted small" style="margin-top:6px">Lower if you hit memory limits; higher for speed.</div>
+        </div>
+        <div>
+          <label>Clusters (k-means)</label>
+          <input type="number" id="k" value="5" min="2" max="20" />
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:12px">
+        <button id="process" class="primary-btn">⚙️ Process</button>
+        <button id="cancel" class="secondary-btn" disabled>✖ Cancel</button>
+      </div>
+    </div>
+
+    <div class="panel" id="progress" style="display:none">
+      <h2>Processing…</h2>
+      <div class="progress-container"><div class="progress-bar" id="bar"></div></div>
+      <div id="ptext" class="muted">Initializing…</div>
+    </div>
+
+    <div class="panel" id="search" style="display:none">
+      <h2>3) Semantic search</h2>
+      <div class="row">
+        <div>
+          <label>Query type</label>
+          <select id="query-type">
+            <option value="text">Text query</option>
+            <option value="image">Image file</option>
+          </select>
+        </div>
+        <div>
+          <label>Text query</label>
+          <input type="text" id="q" placeholder="e.g. airstrike on town civilians…" />
+        </div>
+        <div>
+          <label>Upload image</label>
+          <input type="file" id="q-img" accept="image/*" style="display:none" />
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <div class="btn-row">
+            <button id="go" class="primary-btn">Search</button>
+            <button id="clear" class="secondary-btn">Clear</button>
+          </div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div>
+          <label>Similarity threshold <span id="thval" class="pill">0.70</span></label>
+          <input type="range" id="th" min="0" max="1" step="0.01" value="0.70" class="slider" />
+        </div>
+      </div>
+      <div id="results" class="info-box" style="margin-top:10px"></div>
+    </div>
+
+    <div class="panel" id="viz" style="display:none">
+      <h2>4) Visualization</h2>
+      <div id="graph-container"></div>
+    </div>
+  </div>
+
+  <!-- Help Modal -->
+  <div id="help-modal" class="modal">
+    <div class="modal-content">
+      <span class="close" id="help-close">&times;</span>
+      <h2 style="color:#dc2626; margin-bottom:20px">📚 How to Use EmbedScape</h2>
+
+      <h3 style="margin-top:20px; margin-bottom:10px">1️⃣ Load Your Data</h3>
+      <p>Upload a CSV file with text and/or image URLs. Each row will become a point in the visualization.</p>
+      <ul style="margin-left:20px; margin-top:8px; line-height:1.6">
+        <li><strong>Text column:</strong> Text content to embed (optional)</li>
+        <li><strong>Label column:</strong> Display name for each item (optional)</li>
+        <li><strong>Image URL column:</strong> Links to images (optional)</li>
+      </ul>
+
+      <h3 style="margin-top:20px; margin-bottom:10px">2️⃣ Configure & Process</h3>
+      <p>Choose your embedding model:</p>
+      <ul style="margin-left:20px; margin-top:8px; line-height:1.6">
+        <li><strong>Text only:</strong> Fast embeddings using MiniLM (text data only)</li>
+        <li><strong>Multimodal:</strong> CLIP embeddings (works with text ↔ image search)</li>
+      </ul>
+      <p style="margin-top:10px">The app will generate embeddings, cluster them using k-means, and reduce to 2D with UMAP for visualization.</p>
+
+      <h3 style="margin-top:20px; margin-bottom:10px">3️⃣ Semantic Search</h3>
+      <p><strong>Text Search:</strong> Enter any text query to find semantically similar items.</p>
+      <p style="margin-top:8px"><strong>Image Search:</strong> (Multimodal only) Upload an image to find similar text/images.</p>
+      <p style="margin-top:10px"><strong>💡 Tip:</strong> Click on individual search results to zoom in and highlight that specific node!</p>
+
+      <h3 style="margin-top:20px; margin-bottom:10px">4️⃣ Interactive Visualization</h3>
+      <ul style="margin-left:20px; margin-top:8px; line-height:1.6">
+        <li><strong>Pan:</strong> Click and drag to move around</li>
+        <li><strong>Zoom:</strong> Scroll or pinch to zoom in/out</li>
+        <li><strong>Click nodes:</strong> View details about each item</li>
+        <li><strong>Colors:</strong> Each color represents a different cluster</li>
+      </ul>
+
+      <h3 style="margin-top:20px; margin-bottom:10px">💾 Save & Load Sessions</h3>
+      <p>Save your embeddings as a .json file to avoid reprocessing. Load it later to continue exploring!</p>
+
+      <div style="margin-top:24px; padding:12px; background:#fef2f2; border-radius:6px; border-left:4px solid #dc2626">
+        <strong>Note:</strong> All processing happens in your browser. Your data never leaves your computer!
+      </div>
+    </div>
+  </div>
+
+  <!-- libs -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/umap-js@1.4.0/lib/umap-js.min.js"></script>
+  <script src="https://unpkg.com/deck.gl@^9.0.0/dist.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
