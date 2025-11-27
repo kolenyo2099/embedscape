@@ -12,7 +12,7 @@ helpModal?.addEventListener('click', (e) => { if (e.target === helpModal) helpMo
 
 let csv = [];
 let fields = [];
-let cfg = { text: null, label: null, link: null, image: null, mode: 'text', source: 'text', k: 5, batch: 16 };
+let cfg = { text: null, label: null, link: null, image: null, mode: 'text', source: 'text', k: 5, batch: 16, imageEmbedder: 'Xenova/clip-vit-base-patch32' };
 
 let embeddings = [];
 let coords = [];
@@ -46,6 +46,7 @@ const textCol = el('text-col');
 const labelCol = el('label-col');
 const linkCol = el('link-col');
 const imageCol = el('image-col');
+const imageEmbedderSel = el('image-embedder');
 const modeSel = el('mode');
 const sourceSel = el('source');
 const kInput = el('k');
@@ -130,6 +131,8 @@ embFile.addEventListener('change', async (e) => {
   cfg = data.cfg; embeddings = data.embeddings; coords = data.coords; clusters = data.clusters;
   // Ensure we keep the original embedding mode for consistent querying
   if (!cfg._embedMode) { cfg._embedMode = cfg.mode; }
+  cfg.imageEmbedder = cfg.imageEmbedder || 'Xenova/clip-vit-base-patch32';
+  computeEmbedMetadata(cfg);
 
   // Restore tags if present
   if (data.tags) {
@@ -151,6 +154,7 @@ embFile.addEventListener('change', async (e) => {
   labelCol.value = cfg.label || '';
   linkCol.value = cfg.link || '';
   imageCol.value = cfg.image || '';
+  if (imageEmbedderSel) imageEmbedderSel.value = cfg.imageEmbedder || 'Xenova/clip-vit-base-patch32';
   modeSel.value = cfg.mode || 'text';
   sourceSel.value = cfg.source || 'text';
   kInput.value = cfg.k || 5;
@@ -174,16 +178,7 @@ embFile.addEventListener('change', async (e) => {
   el('search').style.display = 'block';
   viz.style.display = 'block';
   saveBtn.disabled = false;
-
-  // Show/hide image query option based on embedding mode
-  if (cfg._embedMode === 'multimodal') {
-    queryType.options[1].disabled = false;
-  } else {
-    queryType.options[1].disabled = true;
-    queryType.value = 'text';
-    q.style.display = 'block';
-    qImg.style.display = 'none';
-  }
+  updateQueryAvailability();
 
   // Ensure worker is ready for searches
   if (!worker) {
@@ -227,6 +222,16 @@ saveBtn.addEventListener('click', () => {
 const updateUI = () => {
   const hasText = textCol.value && textCol.value !== '';
   const hasImage = imageCol.value && imageCol.value !== '';
+  const isJEPASelected = (imageEmbedderSel?.value || '').startsWith('onnx-community/ijepa');
+
+  // Show image embedder selection only when multimodal is relevant
+  if (imageEmbedderSel) {
+    const row = document.getElementById('image-embedder-row');
+    if (row) {
+      const shouldShow = hasImage && modeSel.value === 'multimodal';
+      row.style.display = shouldShow ? 'block' : 'none';
+    }
+  }
   
   if (!hasText && !hasImage) {
     modeSel.disabled = true;
@@ -251,6 +256,16 @@ const updateUI = () => {
       sourceSel.options[0].hidden = false; // text
       sourceSel.options[1].hidden = false; // image
       sourceSel.options[2].hidden = false; // both
+      if (isJEPASelected) {
+        sourceSel.value = 'image';
+        sourceSel.options[0].disabled = true;
+        sourceSel.options[2].disabled = true;
+        sourceSel.options[1].disabled = false;
+      } else {
+        sourceSel.options[0].disabled = false;
+        sourceSel.options[1].disabled = false;
+        sourceSel.options[2].disabled = false;
+      }
     } else {
       sourceSel.disabled = false;
       sourceSel.options[0].hidden = false; // text
@@ -261,15 +276,44 @@ const updateUI = () => {
   }
 };
 
+const computeEmbedMetadata = (config) => {
+  const isJEPA = (config.imageEmbedder || '').startsWith('onnx-community/ijepa');
+  config._embedFamily = config.mode === 'text' ? 'text' : (isJEPA ? 'ijepa' : 'clip');
+  config._embedHasImage = config.mode === 'multimodal' && (config.source === 'image' || config.source === 'both');
+  config._embedHasText = config.mode === 'text' || (config.mode === 'multimodal' && !isJEPA && (config.source === 'text' || config.source === 'both'));
+  return config;
+};
+
+const updateQueryAvailability = () => {
+  const canImageQuery = !!cfg._embedHasImage;
+  const canTextQuery = !!cfg._embedHasText;
+
+  if (queryType?.options?.length >= 2) {
+    queryType.options[0].disabled = !canTextQuery;
+    queryType.options[1].disabled = !canImageQuery;
+
+    if (queryType.value === 'image' && !canImageQuery) queryType.value = 'text';
+    if (queryType.value === 'text' && !canTextQuery) queryType.value = 'image';
+  }
+
+  const isImageQuery = queryType.value === 'image';
+  q.style.display = isImageQuery ? 'none' : 'block';
+  qImg.style.display = isImageQuery ? 'block' : 'none';
+};
+
 modeSel.addEventListener('change', updateUI);
 textCol.addEventListener('change', updateUI);
 imageCol.addEventListener('change', updateUI);
+imageEmbedderSel?.addEventListener('change', updateUI);
 
 processBtn.addEventListener('click', async () => {
   cfg.text = textCol.value || null; cfg.label = labelCol.value || null; cfg.link = linkCol.value || null; cfg.image = imageCol.value || null;
   cfg.k = parseInt(kInput.value || '5', 10); cfg.batch = parseInt(batchInput.value || '16', 10);
+  cfg.imageEmbedder = imageEmbedderSel?.value || 'Xenova/clip-vit-base-patch32';
   
   if (!cfg.text && !cfg.image) { alert('Please select at least a text column or an image column.'); return; }
+
+  const isJEPA = (cfg.imageEmbedder || '').startsWith('onnx-community/ijepa');
   
   // Auto-detect mode and source based on selected columns
   if (cfg.text && !cfg.image) {
@@ -284,11 +328,17 @@ processBtn.addEventListener('click', async () => {
     // Both selected - use user's choice
     cfg.mode = modeSel.value;
     cfg.source = sourceSel.value;
-    
+
     // Validate
     if (cfg.mode === 'text' && cfg.source !== 'text') { cfg.source = 'text'; }
     if (cfg.source === 'image' && !cfg.image) { alert('Select an image URL column or choose another source.'); return; }
+    if (isJEPA && cfg.source === 'both') { alert('I-JEPA does not support combining text and image. Choose Image column.'); return; }
   }
+
+  if (isJEPA && cfg.mode !== 'multimodal') { cfg.mode = 'multimodal'; }
+  if (isJEPA && !cfg.image) { alert('I-JEPA requires an image URL column.'); return; }
+
+  computeEmbedMetadata(cfg);
 
   configPanel.style.display = 'none';
   progressPanel.style.display = 'block';
@@ -319,9 +369,8 @@ queryType.addEventListener('change', () => {
   q.style.display = isImageQuery ? 'none' : 'block';
   qImg.style.display = isImageQuery ? 'block' : 'none';
 
-  // Disable image query if not in multimodal mode
-  if (isImageQuery && cfg._embedMode !== 'multimodal') {
-    alert('Image search only works with multimodal (CLIP) embeddings. Your data was embedded with text-only model.');
+  if (isImageQuery && !cfg._embedHasImage) {
+    alert('Image search only works when embeddings include images.');
     queryType.value = 'text';
     q.style.display = 'block';
     qImg.style.display = 'none';
@@ -353,7 +402,7 @@ go.addEventListener('click', async () => {
     reader.onload = (e) => {
       const imageDataUrl = e.target.result;
       const queryMode = cfg._embedMode || cfg.mode;
-      worker.postMessage({ type: 'encodeQuery', image: imageDataUrl, cfg: { mode: queryMode, query: true } });
+      worker.postMessage({ type: 'encodeQuery', image: imageDataUrl, cfg: { ...cfg, mode: queryMode, query: true } });
     };
     reader.readAsDataURL(file);
   } else {
@@ -372,7 +421,7 @@ go.addEventListener('click', async () => {
     }
 
     const queryMode = cfg._embedMode || cfg.mode;
-    worker.postMessage({ type: 'encodeQuery', text: queryInput, cfg: { mode: queryMode, query: true } });
+    worker.postMessage({ type: 'encodeQuery', text: queryInput, cfg: { ...cfg, mode: queryMode, query: true } });
   }
 });
 
@@ -576,16 +625,7 @@ function setupWorkerHandlers() {
       viz.style.display = 'block';
       saveBtn.disabled = false;
       workerReady = true;
-
-      // Show/hide image query option based on embedding mode
-      if (cfg._embedMode === 'multimodal') {
-        queryType.options[1].disabled = false;
-      } else {
-        queryType.options[1].disabled = true;
-        queryType.value = 'text';
-        q.style.display = 'block';
-        qImg.style.display = 'none';
-      }
+      updateQueryAvailability();
     } else if (type === 'qvec') {
       // Handle semantic search results
       searchVec = data.vec;
@@ -1005,14 +1045,24 @@ function createWorker() {
     "  } catch (e) { self.postMessage({ type: 'error', data: { message: e.message } }); }",
     "};",
     "",
+    "function l2Normalize(vec) { let n = 0; for (let i = 0; i < vec.length; i++) n += vec[i] * vec[i]; n = Math.sqrt(n) || 1; for (let i = 0; i < vec.length; i++) vec[i] /= n; return vec; }",
+    "const DUMMY_IMG = \"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7W8uQAAAAASUVORK5CYII=\";",
+    "async function encodeImage(imgPipe, url, family) {",
+    "  const out = await imgPipe(url);",
+    "  if (family === 'ijepa') {",
+    "    const pooled = out.mean(1);",
+    "    return l2Normalize(Array.from(pooled[0].data));",
+    "  }",
+    "  const data = out.data ? Array.from(out.data) : Array.from(out[0].data);",
+    "  return l2Normalize(data);",
+    "}",
+    "",
     "async function runBatches(cfg, items) {",
     "  const N = items.length; const B = Math.max(1, Math.min(64, cfg.batch || 16));",
     "  self.postMessage({ type: 'progress', data: { pct: 4, msg: 'Loading transformers.js…' } });",
-    "  const t = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');",
-    "  // Ensure models are always fetched from the hub/CDN, not local paths",
+    "  const t = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');",
+    "  t.env.allowRemoteModels = true;",
     "  t.env.allowLocalModels = false;",
-    "  t.env.localModelPath = '';",
-    "  t.env.localPath = '';",
     "  t.env.useBrowserCache = true;",
     "  let textPipe = null, imgPipe = null;",
     "  if (cfg.mode === 'text') {",
@@ -1022,14 +1072,22 @@ function createWorker() {
     "    // For multimodal, only load what we need",
     "    const needsText = cfg.source === 'text' || cfg.source === 'both';",
     "    const needsImage = cfg.source === 'image' || cfg.source === 'both';",
+    "    const isJEPA = (cfg.imageEmbedder || '').startsWith('onnx-community/ijepa');",
+    "    const imgFamily = isJEPA ? 'ijepa' : 'clip';",
     "    if (needsText) {",
     "      self.postMessage({ type: 'progress', data: { pct: 8, msg: 'Loading CLIP (text)…' } });",
     "      textPipe = await t.pipeline('feature-extraction', 'Xenova/clip-vit-base-patch32');",
     "    }",
     "    if (needsImage) {",
-    "      self.postMessage({ type: 'progress', data: { pct: 12, msg: 'Loading CLIP (image)…' } });",
-    "      imgPipe  = await t.pipeline('image-feature-extraction', 'Xenova/clip-vit-base-patch32');",
+    "      self.postMessage({ type: 'progress', data: { pct: 12, msg: 'Loading ' + imgFamily.toUpperCase() + ' (image)…' } });",
+    "      imgPipe  = await t.pipeline('image-feature-extraction', cfg.imageEmbedder || 'Xenova/clip-vit-base-patch32', { dtype: 'q8' });",
     "    }",
+    "    var IMG_DIM = null;",
+    "    if (imgPipe) {",
+    "      const probe = await encodeImage(imgPipe, DUMMY_IMG, imgFamily);",
+    "      IMG_DIM = probe.length;",
+    "    }",
+    "    const ZERO_IMG = () => new Array(IMG_DIM || 512).fill(0);",
     "  }",
     "  for (let i = 0; i < N; i += B) {",
     "    const batch = items.slice(i, Math.min(i + B, N));",
@@ -1048,19 +1106,20 @@ function createWorker() {
     "          const u = o.image || '';",
     "          if (u && u.trim() !== '') {",
     "            try {",
-    "              const v = await imgPipe(u);",
-    "              vecs.push(Array.from(v.data));",
+    "              const v = await encodeImage(imgPipe, u, imgFamily);",
+    "              vecs.push(v);",
     "            } catch (err) {",
     "              console.warn('Failed to load image:', u, err.message);",
-    "              vecs.push(new Array(512).fill(0));",
+    "              vecs.push(ZERO_IMG());",
     "            }",
     "          } else {",
     "            // Empty image URL - return zero vector",
-    "            vecs.push(new Array(512).fill(0));",
+    "            vecs.push(ZERO_IMG());",
     "          }",
     "        }",
     "      } else {",
     "        // Source is 'both' - combine text and image",
+    "        if (cfg.imageEmbedder && cfg.imageEmbedder.startsWith('onnx-community/ijepa')) { throw new Error(\"I-JEPA doesn't support text+image fusion. Choose source='image'.\"); }",
     "        for (const o of batch) {",
     "          const hasText = o.text && o.text.trim() !== '';",
     "          const hasImage = o.image && o.image.trim() !== '';",
@@ -1068,8 +1127,8 @@ function createWorker() {
     "          if (hasText && hasImage) {",
     "            const vt = await textPipe(o.text, { pooling: 'mean', normalize: true });",
     "            try {",
-    "              const vi = await imgPipe(o.image);",
-    "              outv = meanNormalize([Array.from(vt.data), Array.from(vi.data)]);",
+    "              const vi = await encodeImage(imgPipe, o.image, imgFamily);",
+    "              outv = meanNormalize([Array.from(vt.data), vi]);",
     "            } catch (err) {",
     "              // Image load failed, use text only",
     "              outv = Array.from(vt.data);",
@@ -1079,15 +1138,15 @@ function createWorker() {
     "            outv = Array.from(vt.data);",
     "          } else if (hasImage) {",
     "            try {",
-    "              const vi = await imgPipe(o.image);",
-    "              outv = Array.from(vi.data);",
+    "              const vi = await encodeImage(imgPipe, o.image, imgFamily);",
+    "              outv = vi;",
     "            } catch (err) {",
     "              // Image load failed, use zero vector",
-    "              outv = new Array(512).fill(0);",
+    "              outv = ZERO_IMG();",
     "            }",
     "          } else {",
     "            // Empty embeddings shouldn't happen, but handle gracefully",
-    "            outv = new Array(512).fill(0);",
+    "            outv = ZERO_IMG();",
     "          }",
     "          vecs.push(outv);",
     "        }",
@@ -1101,21 +1160,23 @@ function createWorker() {
     "}",
     "",
     "async function encodeQuery(cfg, text, image) {",
-    "  const t = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');",
-    "  // Ensure models are always fetched from the hub/CDN, not local paths",
+    "  const t = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');",
+    "  t.env.allowRemoteModels = true;",
     "  t.env.allowLocalModels = false;",
-    "  t.env.localModelPath = '';",
-    "  t.env.localPath = '';",
     "  t.env.useBrowserCache = true;",
     "",
-    "  // Handle image queries (only works with CLIP)",
     "  if (image) {",
     "    if (cfg.mode !== 'multimodal') {",
-    "      throw new Error('Image search only works with multimodal (CLIP) embeddings.');",
+    "      throw new Error('Image search requires image embeddings.');",
     "    }",
-    "    const imgPipe = await t.pipeline('image-feature-extraction', 'Xenova/clip-vit-base-patch32');",
-    "    const output = await imgPipe(image);",
-    "    return Array.from(output.data);",
+    "    const isJEPA = (cfg.imageEmbedder || '').startsWith('onnx-community/ijepa');",
+    "    const imgFamily = isJEPA ? 'ijepa' : 'clip';",
+    "    const imgPipe = await t.pipeline('image-feature-extraction', cfg.imageEmbedder || 'Xenova/clip-vit-base-patch32', { dtype: 'q8' });",
+    "    return await encodeImage(imgPipe, image, imgFamily);",
+    "  }",
+    "",
+    "  if (cfg._embedFamily === 'ijepa') {",
+    "    throw new Error('This dataset was embedded with I-JEPA (image-only). Use an image query.');",
     "  }",
     "",
     "  // Handle text queries",

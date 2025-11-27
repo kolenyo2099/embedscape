@@ -74,6 +74,17 @@
           </select>
           <div class="muted small" style="margin-top:6px">Only relevant when your CSV has images. In <b>multimodal</b>, both map to the same space.</div>
         </div>
+        <div id="image-embedder-row">
+          <label for="image-embedder">Image embedder</label>
+          <select id="image-embedder">
+            <option value="Xenova/clip-vit-base-patch32">CLIP (Xenova/clip-vit-base-patch32)</option>
+            <option value="onnx-community/ijepa_vith16_1k">I-JEPA ViT-H/16 (1k)</option>
+            <option value="onnx-community/ijepa_vith14_1k">I-JEPA ViT-H/14 (1k)</option>
+          </select>
+          <div class="small muted">
+            Note: I-JEPA is image-only (no text queries). Embedding dimension differs from CLIP.
+          </div>
+        </div>
         <div>
           <label>Batch size</label>
           <input type="number" id="batch" value="16" min="1" max="64" />
