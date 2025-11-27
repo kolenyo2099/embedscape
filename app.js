@@ -81,6 +81,11 @@ const colorModeEl = el('color-mode');
 const tagFilterEl = el('tag-filter');
 const allTagsEl = el('all-tags');
 
+const previewPanel = el('preview-panel');
+const previewTable = el('preview-table');
+
+const MAX_PREVIEW_ROWS = 100;
+
 // Hardcoded node size - good default for UMAP coordinate space
 const DEFAULT_NODE_SIZE = 0.05;
 
@@ -93,6 +98,42 @@ const esc = (s) => { const d = document.createElement('div'); d.textContent = (s
 const hexToRgb = (hex) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : { r: 0, g: 0, b: 0 };
+};
+
+const renderPreview = (data, columns) => {
+  if (!previewPanel || !previewTable) return;
+
+  if (!data || data.length === 0) {
+    previewTable.innerHTML = '<div class="muted small">No data rows to preview yet.</div>';
+    previewPanel.style.display = 'block';
+    return;
+  }
+
+  const rows = data.slice(0, MAX_PREVIEW_ROWS);
+  const safeColumns = columns && columns.length ? columns : Object.keys(rows[0] || {});
+
+  const header = safeColumns.map(col => `<th>${esc(col)}</th>`).join('');
+  const body = rows.map((row, idx) => {
+    const cells = safeColumns.map(col => {
+      const value = row[col];
+      const safeVal = value == null ? '' : String(value);
+      return `<td title="${esc(safeVal)}">${esc(safeVal)}</td>`;
+    }).join('');
+    return `<tr><td class="preview-row-num">${idx + 1}</td>${cells}</tr>`;
+  }).join('');
+
+  previewTable.innerHTML = `
+    <table class="preview-table">
+      <thead><tr><th>#</th>${header}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>`;
+  previewPanel.style.display = 'block';
+};
+
+const hidePreview = () => {
+  if (!previewPanel || !previewTable) return;
+  previewPanel.style.display = 'none';
+  previewTable.innerHTML = '';
 };
 
 fileInput.addEventListener('change', (e) => {
@@ -116,6 +157,7 @@ fileInput.addEventListener('change', (e) => {
       labelCol.prepend(new Option('None', ''));
       linkCol.prepend(new Option('None', ''));
       imageCol.prepend(new Option('None', ''));
+      renderPreview(csv, fields);
       updateUI();
       configPanel.style.display = 'block';
     }
@@ -159,6 +201,7 @@ embFile.addEventListener('change', async (e) => {
   sourceSel.value = cfg.source || 'text';
   kInput.value = cfg.k || 5;
   batchInput.value = cfg.batch || 16;
+  renderPreview(csv, fields);
   updateUI();
 
   await buildNodesAndViz();
@@ -340,6 +383,8 @@ processBtn.addEventListener('click', async () => {
 
   computeEmbedMetadata(cfg);
 
+  hidePreview();
+
   configPanel.style.display = 'none';
   progressPanel.style.display = 'block';
   setBar(2, 'Loading worker & model…');
@@ -361,6 +406,7 @@ cancelBtn.addEventListener('click', () => {
   if (worker) { worker.terminate(); worker = null; }
   progressPanel.style.display = 'none';
   configPanel.style.display = 'block';
+  if (csv?.length) renderPreview(csv, fields);
 });
 
 // Query type selector - show/hide appropriate input
