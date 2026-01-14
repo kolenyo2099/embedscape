@@ -1,0 +1,26 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/
+
+# Python
+**/__pycache__/
+*.py[cod]
+*$py.class
+**/.venv/
+venv/
+ENV/
+
+# Node
+**/node_modules/
+**/dist/
+**/.svelte-kit/
+**/.vercel/
+**/build/
+
+# Application specific
+frontend/.env
+backend/.env
+.claude/

@@ -1,0 +1,196 @@
+:root {
+	/* UC Berkeley Primary Palette */
+	--berkeley-blue: #003262;
+	--california-gold: #FDB515;
+	--founders-rock: #3B7EA1;
+	--medalist: #C4820E;
+
+	/* Secondary / UI Colors */
+	--bg-color: #f3f4f6;
+	--panel-bg: #ffffff;
+	--text-primary: #003262;
+	--text-secondary: #46535E;
+	--border-color: #D1D5DB;
+
+	/* Semantic Colors */
+	--primary-btn-bg: #003262;
+	--primary-btn-text: #ffffff;
+	--primary-btn-hover: #004280;
+
+	--secondary-btn-bg: #ffffff;
+	--secondary-btn-text: #003262;
+	--secondary-btn-border: #003262;
+
+	--accent-color: #FDB515;
+	--danger-color: #cf2e2e;
+	--success-color: #22c55e;
+
+	/* Typography */
+	--font-serif: 'Source Serif 4', Georgia, serif;
+	--font-sans: 'Inter', -apple-system, sans-serif;
+	--font-mono: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+
+	/* Spacing */
+	--spacing-xs: 4px;
+	--spacing-sm: 8px;
+	--spacing-md: 16px;
+	--spacing-lg: 24px;
+	--spacing-xl: 32px;
+
+	/* Panel sizing */
+	--sidebar-width: 320px;
+	--right-panel-width: 380px;
+	--bottom-panel-height: 220px;
+}
+
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+html, body {
+	height: 100%;
+	overflow: hidden;
+}
+
+body {
+	font-family: var(--font-sans);
+	background-color: var(--bg-color);
+	color: var(--text-primary);
+}
+
+/* Typography */
+h1, h2, h3 {
+	font-family: var(--font-serif);
+	color: var(--berkeley-blue);
+}
+
+h1 { font-size: 1.75rem; font-weight: 700; }
+h2 { font-size: 1.25rem; font-weight: 600; }
+h3 { font-size: 1rem; font-weight: 600; }
+
+/* Buttons */
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--spacing-sm);
+	padding: var(--spacing-sm) var(--spacing-md);
+	border-radius: 4px;
+	font-family: var(--font-sans);
+	font-size: 0.875rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: all 0.15s ease;
+	border: none;
+}
+
+.btn-primary {
+	background: var(--primary-btn-bg);
+	color: var(--primary-btn-text);
+}
+
+.btn-primary:hover:not(:disabled) {
+	background: var(--primary-btn-hover);
+}
+
+.btn-secondary {
+	background: var(--secondary-btn-bg);
+	color: var(--secondary-btn-text);
+	border: 1px solid var(--secondary-btn-border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+	background: #f8fafc;
+}
+
+.btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+/* Form elements */
+input, select, textarea {
+	font-family: var(--font-sans);
+	font-size: 0.875rem;
+	padding: var(--spacing-sm) var(--spacing-md);
+	border: 1px solid var(--border-color);
+	border-radius: 4px;
+	background: white;
+	color: var(--text-primary);
+	width: 100%;
+}
+
+input:focus, select:focus, textarea:focus {
+	outline: none;
+	border-color: var(--berkeley-blue);
+	box-shadow: 0 0 0 2px rgba(0, 50, 98, 0.1);
+}
+
+label {
+	display: block;
+	font-size: 0.875rem;
+	font-weight: 500;
+	color: var(--text-secondary);
+	margin-bottom: var(--spacing-xs);
+}
+
+/* Panels */
+.panel {
+	background: var(--panel-bg);
+	border-radius: 4px;
+	border: 1px solid #e5e7eb;
+	border-top: 4px solid var(--berkeley-blue);
+	padding: var(--spacing-md);
+}
+
+.panel-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: var(--spacing-md);
+	padding-bottom: var(--spacing-sm);
+	border-bottom: 1px solid #f3f4f6;
+}
+
+/* Utilities */
+.muted { color: var(--text-secondary); opacity: 0.8; }
+.small { font-size: 0.8rem; }
+.mono { font-family: var(--font-mono); }
+
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.gap-sm { gap: var(--spacing-sm); }
+.gap-md { gap: var(--spacing-md); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Progress bar */
+.progress-bar {
+	height: 8px;
+	background: #e2e8f0;
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.progress-bar-fill {
+	height: 100%;
+	background: var(--berkeley-blue);
+	transition: width 0.3s ease;
+}
+
+/* Tags */
+.tag {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 12px;
+	font-size: 0.75rem;
+	font-weight: 600;
+	background: rgba(253, 181, 21, 0.2);
+	color: #855800;
+}
