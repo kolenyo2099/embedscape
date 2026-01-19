@@ -101,6 +101,72 @@ export async function clearEmbeddings() {
 	return request('/embeddings/clear', { method: 'DELETE' });
 }
 
+// Data wrangling endpoints
+export async function updateRow(index: number, updates: Record<string, any>) {
+	return request<{ success: boolean; index: number; modified_count: number }>(
+		`/data/row/${index}`,
+		{
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ updates })
+		}
+	);
+}
+
+export async function addColumn(name: string, defaultValue: string = '') {
+	return request<{ success: boolean; column: string; total_columns: number }>(
+		'/data/column',
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name, default_value: defaultValue })
+		}
+	);
+}
+
+export async function splitColumn(
+	sourceColumn: string,
+	mode: 'delimiter' | 'regex',
+	pattern: string,
+	newColumnPrefix: string,
+	keepOriginal: boolean = true
+) {
+	return request<{ success: boolean; new_columns: string[]; total_columns: number }>(
+		'/data/column/split',
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				source_column: sourceColumn,
+				mode,
+				pattern,
+				new_column_prefix: newColumnPrefix,
+				keep_original: keepOriginal
+			})
+		}
+	);
+}
+
+export async function getModifiedIndices() {
+	return request<{ indices: number[]; count: number }>('/data/modified');
+}
+
+export async function clearModified() {
+	return request('/data/modified/clear', { method: 'DELETE' });
+}
+
+export async function generateSelectiveEmbeddings(
+	indices: number[],
+	columns: ProcessRequest['columns'],
+	config: ProcessRequest['config']
+) {
+	return request('/embeddings/generate/selective', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ indices, columns, config })
+	});
+}
+
 // Embedding endpoints
 export interface ProcessRequest {
 	columns: {

@@ -1,58 +1,63 @@
 <script lang="ts">
-	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-	import { Deck } from '@deck.gl/core';
-	import { ScatterplotLayer } from '@deck.gl/layers';
-	import { OrthographicView } from '@deck.gl/core';
+	import { onMount, onDestroy, createEventDispatcher } from "svelte";
+	import { Deck } from "@deck.gl/core";
+	import { ScatterplotLayer, TextLayer, PolygonLayer } from "@deck.gl/layers";
+	import { OrthographicView } from "@deck.gl/core";
 	import {
 		nodes,
 		selectedNodes,
 		highlightedNodes,
 		hoveredNode,
 		bounds,
-		columnConfig
-	} from '$lib/stores/data';
-	import {
-		viewState,
-		selectionEnabled,
-		selectionTool,
-		colorMode
-	} from '$lib/stores/ui';
+		columnConfig,
+		rawData,
+	} from "$lib/stores/data";
+	import { viewState, selectionEnabled, selectionTool } from "$lib/stores/ui";
 	import {
 		codeApplications,
 		qualitativeCodes,
-		activeCodeId
-	} from '$lib/stores/coding';
-	import type { Node } from '$lib/stores/data';
+		activeCodeId,
+	} from "$lib/stores/coding";
+	import { designConfig } from "$lib/stores/design";
+	import Legend from "./Legend.svelte";
+	import type { Node } from "$lib/stores/data";
 
 	const dispatch = createEventDispatcher();
 
 	let container: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
 	let selectionOverlay: SVGSVGElement;
-	let deck: any = null;  // Using any to avoid complex deck.gl typing issues
+	let deck: any = null; // Using any to avoid complex deck.gl typing issues
 
 	// Selection drawing state
 	let isDrawing = false;
 	let selectionStart: { x: number; y: number } | null = null;
-	let selectionRect: { x: number; y: number; width: number; height: number } | null = null;
+	let selectionRect: {
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+	} | null = null;
 	let lassoPoints: { x: number; y: number }[] = [];
 
 	// Color palette for clusters
 	const clusterColors: [number, number, number, number][] = [
-		[230, 25, 75, 255],    // red
-		[60, 180, 75, 255],    // green
-		[255, 225, 25, 255],   // yellow
-		[67, 99, 216, 255],    // blue
-		[245, 130, 49, 255],   // orange
-		[145, 30, 180, 255],   // purple
-		[70, 240, 240, 255],   // cyan
-		[240, 50, 230, 255],   // magenta
-		[188, 246, 12, 255],   // lime
-		[250, 190, 190, 255],  // pink
+		[230, 25, 75, 255], // red
+		[60, 180, 75, 255], // green
+		[255, 225, 25, 255], // yellow
+		[67, 99, 216, 255], // blue
+		[245, 130, 49, 255], // orange
+		[145, 30, 180, 255], // purple
+		[70, 240, 240, 255], // cyan
+		[240, 50, 230, 255], // magenta
+		[188, 246, 12, 255], // lime
+		[250, 190, 190, 255], // pink
 	];
 
-	const HIGHLIGHT_COLOR: [number, number, number, number] = [255, 215, 0, 255];  // Gold
-	const SELECTED_COLOR: [number, number, number, number] = [0, 255, 255, 200];   // Cyan
+	const HIGHLIGHT_COLOR: [number, number, number, number] = [
+		255, 215, 0, 255,
+	]; // Gold
+	const SELECTED_COLOR: [number, number, number, number] = [0, 255, 255, 200]; // Cyan
 
 	function hexToRgba(hex: string): [number, number, number, number] {
 		const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -61,7 +66,7 @@
 				parseInt(result[1], 16),
 				parseInt(result[2], 16),
 				parseInt(result[3], 16),
-				255
+				255,
 			];
 		}
 		return [128, 128, 128, 255];
@@ -70,22 +75,30 @@
 	// Get codes applied to a node
 	function getNodeCodes(nodeId: number): string[] {
 		return $codeApplications
-			.filter(a => a.nodeId === nodeId)
-			.map(a => a.codeId);
+			.filter((a) => a.nodeId === nodeId)
+			.map((a) => a.codeId);
 	}
 
 	// Get the primary code color for a node (first applied code)
-	function getNodeCodeColor(nodeId: number): [number, number, number, number] | null {
+	function getNodeCodeColor(
+		nodeId: number,
+	): [number, number, number, number] | null {
 		const nodeCodeIds = getNodeCodes(nodeId);
 		if (nodeCodeIds.length === 0) return null;
 
-		const primaryCode = $qualitativeCodes.find(c => c.id === nodeCodeIds[0]);
+		const primaryCode = $qualitativeCodes.find(
+			(c) => c.id === nodeCodeIds[0],
+		);
 		if (!primaryCode) return null;
 
 		return hexToRgba(primaryCode.color);
 	}
 
-	function getNodeColor(node: Node, highlighted: Set<number>, selected: Set<number>, mode: 'cluster' | 'tag'): [number, number, number, number] {
+	function getNodeColor(
+		node: Node,
+		highlighted: Set<number>,
+		selected: Set<number>,
+	): [number, number, number, number] {
 		if (highlighted.has(node.id)) {
 			return HIGHLIGHT_COLOR;
 		}
@@ -93,17 +106,69 @@
 			return SELECTED_COLOR;
 		}
 
-		// If color mode is set to code-based, check for applied codes
-		const codeColor = getNodeCodeColor(node.id);
-		if (codeColor && mode === 'tag') {
-			return codeColor;
+		// Use design config for color
+		const colorCol = $designConfig.colorColumn;
+		if (colorCol && node.data && node.data[colorCol] !== undefined) {
+			const value = String(node.data[colorCol]);
+			const hex = $designConfig.colorMap[value];
+			if (hex) return hexToRgba(hex);
 		}
 
+		// Fallback to cluster color
 		return clusterColors[node.cluster % clusterColors.length];
 	}
 
-	function getNodeRadius(node: Node, highlighted: Set<number>, selected: Set<number>): number {
-		const baseRadius = 5;
+	function getNodeOpacity(node: Node): number {
+		if ($designConfig.opacityMode === "fixed") {
+			return $designConfig.opacityFixed;
+		}
+
+		// Opacity by column
+		if ($designConfig.opacityColumn && node.data) {
+			const val = Number(node.data[$designConfig.opacityColumn]);
+			if (!isNaN(val)) {
+				const allVals = $rawData
+					.map((r) => Number(r[$designConfig.opacityColumn]))
+					.filter((v) => !isNaN(v));
+				const minVal = Math.min(...allVals);
+				const maxVal = Math.max(...allVals);
+				const range = maxVal - minVal || 1;
+				const normalized = (val - minVal) / range;
+				const [opacityMin, opacityMax] = $designConfig.opacityRange;
+				return opacityMin + normalized * (opacityMax - opacityMin);
+			}
+		}
+		return 1.0;
+	}
+
+	function getNodeRadius(
+		node: Node,
+		highlighted: Set<number>,
+		selected: Set<number>,
+	): number {
+		let baseRadius = $designConfig.sizeFixed;
+
+		// Size by column
+		if (
+			$designConfig.sizeMode === "column" &&
+			$designConfig.sizeColumn &&
+			node.data
+		) {
+			const val = Number(node.data[$designConfig.sizeColumn]);
+			if (!isNaN(val)) {
+				// Get min/max from data for normalization
+				const allVals = $rawData
+					.map((r) => Number(r[$designConfig.sizeColumn]))
+					.filter((v) => !isNaN(v));
+				const minVal = Math.min(...allVals);
+				const maxVal = Math.max(...allVals);
+				const range = maxVal - minVal || 1;
+				const normalized = (val - minVal) / range;
+				const [sizeMin, sizeMax] = $designConfig.sizeRange;
+				baseRadius = sizeMin + normalized * (sizeMax - sizeMin);
+			}
+		}
+
 		if (highlighted.has(node.id)) return baseRadius * 2.5;
 		if (selected.has(node.id)) return baseRadius * 1.8;
 		return baseRadius;
@@ -113,23 +178,32 @@
 		nodeData: Node[],
 		highlighted: Set<number>,
 		selected: Set<number>,
-		mode: 'cluster' | 'tag'
 	): ScatterplotLayer<Node> {
 		return new ScatterplotLayer<Node>({
-			id: 'scatter-layer',
+			id: "scatter-layer",
 			data: nodeData,
 			pickable: true,
 			opacity: 1,
 			stroked: true,
 			filled: true,
-			radiusUnits: 'pixels',
+			radiusUnits: "pixels",
 			radiusMinPixels: 3,
 			radiusMaxPixels: 50,
-			lineWidthUnits: 'pixels',
+			lineWidthUnits: "pixels",
 			lineWidthMinPixels: 1,
-			getPosition: (d: Node) => [...d.position, 0] as [number, number, number],
+			getPosition: (d: Node) =>
+				[...d.position, 0] as [number, number, number],
 			getRadius: (d: Node) => getNodeRadius(d, highlighted, selected),
-			getFillColor: (d: Node) => getNodeColor(d, highlighted, selected, mode),
+			getFillColor: (d: Node) => {
+				const baseColor = getNodeColor(d, highlighted, selected);
+				const opacity = getNodeOpacity(d);
+				return [
+					baseColor[0],
+					baseColor[1],
+					baseColor[2],
+					Math.round(opacity * 255),
+				] as [number, number, number, number];
+			},
 			getLineColor: (d: Node) => {
 				if (highlighted.has(d.id)) return [255, 0, 0, 255];
 				if (selected.has(d.id)) return [0, 200, 200, 255];
@@ -141,11 +215,161 @@
 				return 1;
 			},
 			updateTriggers: {
-				getRadius: [Array.from(highlighted), Array.from(selected)],
-				getFillColor: [Array.from(highlighted), Array.from(selected), $codeApplications.length, $colorMode],
+				getRadius: [
+					Array.from(highlighted),
+					Array.from(selected),
+					$designConfig.sizeMode,
+					$designConfig.sizeFixed,
+					$designConfig.sizeColumn,
+				],
+				getFillColor: [
+					Array.from(highlighted),
+					Array.from(selected),
+					$codeApplications.length,
+					$designConfig.colorColumn,
+					JSON.stringify($designConfig.colorMap),
+					$designConfig.opacityMode,
+					$designConfig.opacityFixed,
+					$designConfig.opacityColumn,
+				],
 				getLineColor: [Array.from(highlighted), Array.from(selected)],
-				getLineWidth: [Array.from(highlighted), Array.from(selected)]
+				getLineWidth: [Array.from(highlighted), Array.from(selected)],
+			},
+		});
+	}
+
+	function createTextLayer(
+		nodeData: Node[],
+		config: typeof $designConfig,
+	): TextLayer<Node> | null {
+		if (!config.showLabels || !config.labelColumn) return null;
+
+		return new TextLayer<Node>({
+			id: "text-layer",
+			data: nodeData,
+			pickable: false,
+			getPosition: (d: Node) =>
+				[...d.position, 0] as [number, number, number],
+			getText: (d: Node) => {
+				const val = d.data?.[config.labelColumn];
+				return val !== undefined && val !== null ? String(val) : "";
+			},
+			getSize: 12,
+			getColor: [30, 30, 30, 220],
+			getTextAnchor: "middle",
+			getAlignmentBaseline: "top",
+			getPixelOffset: [0, 8],
+			fontFamily: "Inter, system-ui, sans-serif",
+			fontWeight: 500,
+			outlineWidth: 2,
+			outlineColor: [255, 255, 255, 200],
+			updateTriggers: {
+				getText: [config.labelColumn],
+			},
+		});
+	}
+
+	// Compute convex hull using Gift Wrapping algorithm
+	function computeConvexHull(points: [number, number][]): [number, number][] {
+		if (points.length < 3) return points;
+
+		// Find leftmost point
+		let leftmost = 0;
+		for (let i = 1; i < points.length; i++) {
+			if (points[i][0] < points[leftmost][0]) leftmost = i;
+		}
+
+		const hull: [number, number][] = [];
+		let current = leftmost;
+		let iterations = 0;
+		const maxIterations = points.length + 10;
+
+		do {
+			hull.push(points[current]);
+			let next = 0;
+			for (let i = 0; i < points.length; i++) {
+				if (next === current) {
+					next = i;
+					continue;
+				}
+				const cross =
+					(points[i][0] - points[current][0]) *
+						(points[next][1] - points[current][1]) -
+					(points[i][1] - points[current][1]) *
+						(points[next][0] - points[current][0]);
+				if (cross < 0) next = i;
 			}
+			current = next;
+			iterations++;
+		} while (current !== leftmost && iterations < maxIterations);
+
+		return hull;
+	}
+
+	function createClusterOutlineLayer(
+		nodeData: Node[],
+		config: typeof $designConfig,
+	): PolygonLayer<{
+		cluster: number;
+		polygon: [number, number][];
+		color: [number, number, number, number];
+	}> | null {
+		if (!config.showClusterOutlines || nodeData.length === 0) return null;
+
+		// Group nodes by cluster
+		const clusterGroups = new Map<number, [number, number][]>();
+		for (const node of nodeData) {
+			if (!clusterGroups.has(node.cluster)) {
+				clusterGroups.set(node.cluster, []);
+			}
+			clusterGroups.get(node.cluster)!.push(node.position);
+		}
+
+		// Compute convex hulls for each cluster
+		const polygons: {
+			cluster: number;
+			polygon: [number, number][];
+			color: [number, number, number, number];
+		}[] = [];
+		for (const [clusterId, points] of clusterGroups) {
+			// Only draw outlines for clusters with enough points
+			if (points.length >= 5) {
+				const hull = computeConvexHull(points);
+				if (hull.length >= 3) {
+					const color =
+						clusterColors[clusterId % clusterColors.length];
+					polygons.push({
+						cluster: clusterId,
+						polygon: hull,
+						// Lower opacity (20) for less visual clutter when clusters overlap
+						color: [color[0], color[1], color[2], 20] as [
+							number,
+							number,
+							number,
+							number,
+						],
+					});
+				}
+			}
+		}
+
+		return new PolygonLayer({
+			id: "cluster-outline-layer",
+			data: polygons,
+			pickable: false,
+			stroked: true,
+			filled: true,
+			lineWidthMinPixels: 2,
+			getPolygon: (d) => d.polygon,
+			getFillColor: (d) => d.color,
+			getLineColor: (d) =>
+				[d.color[0], d.color[1], d.color[2], 150] as [
+					number,
+					number,
+					number,
+					number,
+				],
+			getLineWidth: 2,
 		});
 	}
 
@@ -161,7 +385,7 @@
 			height,
 			views: [
 				new OrthographicView({
-					id: 'main',
+					id: "main",
 					controller: {
 						scrollZoom: true,
 						dragPan: true,
@@ -169,20 +393,20 @@
 						doubleClickZoom: true,
 						touchZoom: true,
 						touchRotate: false,
-						keyboard: true
-					}
-				})
+						keyboard: true,
+					},
+				}),
 			],
 			initialViewState: {
 				target: [0, 0, 0],
 				zoom: 0,
 				minZoom: -10,
-				maxZoom: 10
+				maxZoom: 10,
 			} as any,
 			onViewStateChange: ({ viewState: newViewState }: any) => {
 				viewState.set({
 					target: newViewState.target as [number, number, number],
-					zoom: newViewState.zoom as number
+					zoom: newViewState.zoom as number,
 				});
 				return newViewState;
 			},
@@ -190,7 +414,8 @@
 			onClick: handleClick,
 			onHover: handleHover,
 			getTooltip: getTooltip,
-			getCursor: ({ isHovering }: { isHovering: boolean }) => isHovering ? 'pointer' : 'grab'
+			getCursor: ({ isHovering }: { isHovering: boolean }) =>
+				isHovering ? "pointer" : "grab",
 		});
 	}
 
@@ -199,9 +424,9 @@
 
 		const node = info.object as Node;
 
-		if ($selectionEnabled && $selectionTool === 'pointer') {
+		if ($selectionEnabled && $selectionTool === "pointer") {
 			// Toggle selection in pointer mode
-			selectedNodes.update(s => {
+			selectedNodes.update((s) => {
 				const newSet = new Set(s);
 				if (newSet.has(node.id)) {
 					newSet.delete(node.id);
@@ -230,32 +455,35 @@
 
 		const cfg = $columnConfig;
 		const label = cfg.label ? object.data[cfg.label] : `Node ${object.id}`;
-		const tags = object.tags.size > 0 ? Array.from(object.tags).join(', ') : '';
+		const tags =
+			object.tags.size > 0 ? Array.from(object.tags).join(", ") : "";
 
 		// Get qualitative codes applied to this node
 		const nodeCodeIds = getNodeCodes(object.id);
-		const nodeCodes = $qualitativeCodes.filter(c => nodeCodeIds.includes(c.id));
-		const codeNames = nodeCodes.map(c => c.name).join(', ');
+		const nodeCodes = $qualitativeCodes.filter((c) =>
+			nodeCodeIds.includes(c.id),
+		);
+		const codeNames = nodeCodes.map((c) => c.name).join(", ");
 
 		return {
 			html: `
 				<div style="font-weight: 600">${label}</div>
-				${codeNames ? `<div style="font-size: 0.8em; margin-top: 4px">Codes: ${codeNames}</div>` : ''}
-				${tags ? `<div style="font-size: 0.8em; margin-top: 2px">Tags: ${tags}</div>` : ''}
+				${codeNames ? `<div style="font-size: 0.8em; margin-top: 4px">Codes: ${codeNames}</div>` : ""}
+				${tags ? `<div style="font-size: 0.8em; margin-top: 2px">Tags: ${tags}</div>` : ""}
 				<div style="font-size: 0.8em; opacity: 0.7">Cluster ${object.cluster}</div>
 			`,
 			style: {
-				backgroundColor: '#1a1a2e',
-				color: '#ffffff',
-				padding: '8px 12px',
-				borderRadius: '4px',
-				fontSize: '13px'
-			}
+				backgroundColor: "#1a1a2e",
+				color: "#ffffff",
+				padding: "8px 12px",
+				borderRadius: "4px",
+				fontSize: "13px",
+			},
 		};
 	}
 
 	function showNodeModal(node: Node) {
-		dispatch('nodeclick', node);
+		dispatch("nodeclick", node);
 	}
 
 	function fitToData() {
@@ -280,8 +508,8 @@
 				zoom,
 				minZoom: -10,
 				maxZoom: 10,
-				transitionDuration: 500
-			}
+				transitionDuration: 500,
+			},
 		});
 	}
 
@@ -303,7 +531,11 @@
 	}
 
 	// Check if point is inside rectangle
-	function pointInRect(px: number, py: number, rect: { x: number; y: number; width: number; height: number }): boolean {
+	function pointInRect(
+		px: number,
+		py: number,
+		rect: { x: number; y: number; width: number; height: number },
+	): boolean {
 		const minX = Math.min(rect.x, rect.x + rect.width);
 		const maxX = Math.max(rect.x, rect.x + rect.width);
 		const minY = Math.min(rect.y, rect.y + rect.height);
@@ -312,15 +544,24 @@
 	}
 
 	// Check if point is inside polygon using ray casting
-	function pointInPolygon(px: number, py: number, polygon: { x: number; y: number }[]): boolean {
+	function pointInPolygon(
+		px: number,
+		py: number,
+		polygon: { x: number; y: number }[],
+	): boolean {
 		if (polygon.length < 3) return false;
 
 		let inside = false;
 		for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-			const xi = polygon[i].x, yi = polygon[i].y;
-			const xj = polygon[j].x, yj = polygon[j].y;
+			const xi = polygon[i].x,
+				yi = polygon[i].y;
+			const xj = polygon[j].x,
+				yj = polygon[j].y;
 
-			if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+			if (
+				yi > py !== yj > py &&
+				px < ((xj - xi) * (py - yi)) / (yj - yi) + xi
+			) {
 				inside = !inside;
 			}
 		}
@@ -329,7 +570,7 @@
 
 	// Selection mouse handlers
 	function handleSelectionMouseDown(e: MouseEvent) {
-		if (!$selectionEnabled || $selectionTool === 'pointer') return;
+		if (!$selectionEnabled || $selectionTool === "pointer") return;
 		if (e.button !== 0) return; // Only left click
 
 		isDrawing = true;
@@ -339,9 +580,9 @@
 
 		selectionStart = { x, y };
 
-		if ($selectionTool === 'rectangle') {
+		if ($selectionTool === "rectangle") {
 			selectionRect = { x, y, width: 0, height: 0 };
-		} else if ($selectionTool === 'lasso') {
+		} else if ($selectionTool === "lasso") {
 			lassoPoints = [{ x, y }];
 		}
 
@@ -356,14 +597,14 @@
 		const x = e.clientX - rect.left;
 		const y = e.clientY - rect.top;
 
-		if ($selectionTool === 'rectangle' && selectionStart) {
+		if ($selectionTool === "rectangle" && selectionStart) {
 			selectionRect = {
 				x: selectionStart.x,
 				y: selectionStart.y,
 				width: x - selectionStart.x,
-				height: y - selectionStart.y
+				height: y - selectionStart.y,
 			};
-		} else if ($selectionTool === 'lasso') {
+		} else if ($selectionTool === "lasso") {
 			lassoPoints = [...lassoPoints, { x, y }];
 		}
 	}
@@ -374,43 +615,67 @@
 		// Find nodes within selection
 		const selectedIds = new Set<number>();
 
-		if ($selectionTool === 'rectangle' && selectionRect) {
+		if ($selectionTool === "rectangle" && selectionRect) {
 			// Convert rectangle corners to world coordinates
 			const topLeft = screenToWorld(
-				container.getBoundingClientRect().left + Math.min(selectionRect.x, selectionRect.x + selectionRect.width),
-				container.getBoundingClientRect().top + Math.min(selectionRect.y, selectionRect.y + selectionRect.height)
+				container.getBoundingClientRect().left +
+					Math.min(
+						selectionRect.x,
+						selectionRect.x + selectionRect.width,
+					),
+				container.getBoundingClientRect().top +
+					Math.min(
+						selectionRect.y,
+						selectionRect.y + selectionRect.height,
+					),
 			);
 			const bottomRight = screenToWorld(
-				container.getBoundingClientRect().left + Math.max(selectionRect.x, selectionRect.x + selectionRect.width),
-				container.getBoundingClientRect().top + Math.max(selectionRect.y, selectionRect.y + selectionRect.height)
+				container.getBoundingClientRect().left +
+					Math.max(
+						selectionRect.x,
+						selectionRect.x + selectionRect.width,
+					),
+				container.getBoundingClientRect().top +
+					Math.max(
+						selectionRect.y,
+						selectionRect.y + selectionRect.height,
+					),
 			);
 
 			const worldRect = {
 				x: topLeft[0],
 				y: bottomRight[1], // Note: Y is inverted
 				width: bottomRight[0] - topLeft[0],
-				height: topLeft[1] - bottomRight[1]
+				height: topLeft[1] - bottomRight[1],
 			};
 
 			// Check each node
 			for (const node of $nodes) {
-				if (pointInRect(node.position[0], node.position[1], worldRect)) {
+				if (
+					pointInRect(node.position[0], node.position[1], worldRect)
+				) {
 					selectedIds.add(node.id);
 				}
 			}
-		} else if ($selectionTool === 'lasso' && lassoPoints.length > 2) {
+		} else if ($selectionTool === "lasso" && lassoPoints.length > 2) {
 			// Convert lasso points to world coordinates
-			const worldPolygon = lassoPoints.map(p => {
+			const worldPolygon = lassoPoints.map((p) => {
 				const world = screenToWorld(
 					container.getBoundingClientRect().left + p.x,
-					container.getBoundingClientRect().top + p.y
+					container.getBoundingClientRect().top + p.y,
 				);
 				return { x: world[0], y: world[1] };
 			});
 
 			// Check each node
 			for (const node of $nodes) {
-				if (pointInPolygon(node.position[0], node.position[1], worldPolygon)) {
+				if (
+					pointInPolygon(
+						node.position[0],
+						node.position[1],
+						worldPolygon,
+					)
+				) {
 					selectedIds.add(node.id);
 				}
 			}
@@ -418,9 +683,9 @@
 
 		// Update selection (add to existing if shift is held)
 		if (e.shiftKey) {
-			selectedNodes.update(s => {
+			selectedNodes.update((s) => {
 				const newSet = new Set(s);
-				selectedIds.forEach(id => newSet.add(id));
+				selectedIds.forEach((id) => newSet.add(id));
 				return newSet;
 			});
 		} else {
@@ -435,17 +700,37 @@
 	}
 
 	// Generate SVG path for lasso
-	$: lassoPath = lassoPoints.length > 1
-		? `M ${lassoPoints.map(p => `${p.x},${p.y}`).join(' L ')}`
-		: '';
+	$: lassoPath =
+		lassoPoints.length > 1
+			? `M ${lassoPoints.map((p) => `${p.x},${p.y}`).join(" L ")}`
+			: "";
 
 	// Reactive updates - include codeApplications to update when codes change
-	$: if (deck && $nodes.length > 0) {
-		// Reference codeApplications and qualitativeCodes to trigger reactivity
-		const _ = [$codeApplications, $qualitativeCodes, $colorMode];
-		deck.setProps({
-			layers: [createLayer($nodes, $highlightedNodes, $selectedNodes, $colorMode)]
-		});
+	$: if (deck) {
+		if ($nodes.length > 0) {
+			// Reference codeApplications, qualitativeCodes, and designConfig to trigger reactivity
+			const _ = [$codeApplications, $qualitativeCodes, $designConfig];
+			const layers: any[] = [];
+
+			// Add cluster outlines first (behind nodes)
+			const clusterLayer = createClusterOutlineLayer(
+				$nodes,
+				$designConfig,
+			);
+			if (clusterLayer) layers.push(clusterLayer);
+
+			// Add scatter layer
+			layers.push(createLayer($nodes, $highlightedNodes, $selectedNodes));
+
+			// Add text layer on top
+			const textLayer = createTextLayer($nodes, $designConfig);
+			if (textLayer) layers.push(textLayer);
+
+			deck.setProps({ layers });
+		} else {
+			// Clear layers when no nodes
+			deck.setProps({ layers: [] });
+		}
 	}
 
 	$: if (deck && $bounds) {
@@ -465,7 +750,7 @@
 		if (isExternalUpdate) {
 			lastViewStateUpdate = {
 				target: [...$viewState.target],
-				zoom: $viewState.zoom
+				zoom: $viewState.zoom,
 			};
 			deck.setProps({
 				initialViewState: {
@@ -473,8 +758,8 @@
 					zoom: $viewState.zoom,
 					minZoom: -10,
 					maxZoom: 10,
-					transitionDuration: 500
-				}
+					transitionDuration: 500,
+				},
 			});
 		}
 	}
@@ -484,7 +769,7 @@
 		if (deck && container) {
 			deck.setProps({
 				width: container.clientWidth,
-				height: container.clientHeight
+				height: container.clientHeight,
 			});
 		}
 	}
@@ -510,7 +795,7 @@
 
 <div
 	class="graph-container"
-	class:selection-active={$selectionEnabled && $selectionTool !== 'pointer'}
+	class:selection-active={$selectionEnabled && $selectionTool !== "pointer"}
 	bind:this={container}
 	on:mousedown={handleSelectionMouseDown}
 	on:mousemove={handleSelectionMouseMove}
@@ -522,12 +807,16 @@
 	<canvas bind:this={canvas} class="graph-canvas"></canvas>
 
 	<!-- Selection Overlay -->
-	{#if $selectionEnabled && $selectionTool !== 'pointer'}
+	{#if $selectionEnabled && $selectionTool !== "pointer"}
 		<svg class="selection-overlay" bind:this={selectionOverlay}>
 			{#if selectionRect}
 				<rect
-					x={selectionRect.width >= 0 ? selectionRect.x : selectionRect.x + selectionRect.width}
-					y={selectionRect.height >= 0 ? selectionRect.y : selectionRect.y + selectionRect.height}
+					x={selectionRect.width >= 0
+						? selectionRect.x
+						: selectionRect.x + selectionRect.width}
+					y={selectionRect.height >= 0
+						? selectionRect.y
+						: selectionRect.y + selectionRect.height}
 					width={Math.abs(selectionRect.width)}
 					height={Math.abs(selectionRect.height)}
 					class="selection-rect"
@@ -543,7 +832,10 @@
 		<div class="empty-state">
 			<div class="empty-icon">📊</div>
 			<h3>No visualization yet</h3>
-			<p>Upload data and process embeddings to see your data visualized here.</p>
+			<p>
+				Upload data and process embeddings to see your data visualized
+				here.
+			</p>
 		</div>
 	{/if}
 
@@ -558,10 +850,15 @@
 	{#if $selectionEnabled}
 		<div class="selection-indicator">
 			Selection: {$selectionTool}
-			{#if $selectionTool !== 'pointer'}
+			{#if $selectionTool !== "pointer"}
 				<span class="hint">(Shift+drag to add)</span>
 			{/if}
 		</div>
+	{/if}
+
+	<!-- Legend -->
+	{#if $nodes.length > 0}
+		<Legend />
 	{/if}
 </div>
 

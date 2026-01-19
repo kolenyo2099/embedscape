@@ -157,26 +157,28 @@
 </script>
 
 <div class="panel upload-panel">
-	<h2>1) Load Data</h2>
+	<h2>Data</h2>
 
-	<!-- Drop zone -->
-	<div
-		class="drop-zone"
-		class:dragging={isDragging}
-		on:dragover|preventDefault={() => (isDragging = true)}
-		on:dragleave={() => (isDragging = false)}
-		on:drop={handleDrop}
-		on:click={() => fileInput.click()}
-		role="button"
-		tabindex="0"
-	>
-		{#if isUploading}
-			<p>Uploading...</p>
-		{:else}
-			<p>📁 Drop file here or click to browse</p>
-			<small>CSV, NDJSON, images, or videos</small>
-		{/if}
-	</div>
+	{#if $totalRows === 0}
+		<!-- Drop zone - only shown when no data loaded -->
+		<div
+			class="drop-zone"
+			class:dragging={isDragging}
+			on:dragover|preventDefault={() => (isDragging = true)}
+			on:dragleave={() => (isDragging = false)}
+			on:drop={handleDrop}
+			on:click={() => fileInput.click()}
+			role="button"
+			tabindex="0"
+		>
+			{#if isUploading}
+				<p>Uploading...</p>
+			{:else}
+				<p>📁 Drop file here or click to browse</p>
+				<small>CSV, NDJSON, images, or videos</small>
+			{/if}
+		</div>
+	{/if}
 
 	<input
 		type="file"
@@ -208,6 +210,14 @@
 		style="display: none"
 	/>
 
+	{#if $totalRows > 0}
+		<!-- Compact view when data is loaded -->
+		<div class="info-box">
+			<strong>{$totalRows.toLocaleString()}</strong> rows loaded
+			<button class="clear-btn" on:click={clearData}>Clear</button>
+		</div>
+	{/if}
+
 	<!-- Session buttons -->
 	<div class="btn-row">
 		<button class="btn btn-secondary" on:click={() => sessionInput.click()}>
@@ -224,13 +234,6 @@
 			{isSaving ? "Saving..." : "Save Session"}
 		</button>
 	</div>
-
-	{#if $totalRows > 0}
-		<div class="info-box">
-			<strong>{$totalRows.toLocaleString()}</strong> rows loaded
-			<button class="clear-btn" on:click={clearData}>Clear</button>
-		</div>
-	{/if}
 </div>
 
 <style>

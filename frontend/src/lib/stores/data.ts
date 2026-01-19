@@ -59,6 +59,10 @@ export const rawData = writable<DataRow[]>([]);
 export const columns = writable<string[]>([]);
 export const totalRows = writable<number>(0);
 
+// Data wrangling state
+export const editMode = writable<boolean>(false);
+export const modifiedRows = writable<Set<number>>(new Set());
+
 // Column configuration - use empty string for "None" to match select element behavior
 export const columnConfig = writable<ColumnConfig>({
 	text: '',

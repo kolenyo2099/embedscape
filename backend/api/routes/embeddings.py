@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
 from models.schemas import ProcessRequest, EmbeddingResult, ColumnConfig, EmbeddingConfig
-from api.routes.data import get_current_data
+from api.routes.data import get_current_data, get_modified_indices, clear_modified_indices
 from services.embedder import (
     embed_texts, embed_texts_clip, embed_images,
     embed_video_frames, embed_multimodal
@@ -200,6 +200,11 @@ async def _process_embeddings(
             config
         )
 
+        # Add cluster column to data
+        for i, cluster_id in enumerate(clusters):
+            if i < len(data):
+                data[i]['_cluster'] = int(cluster_id)
+
         await progress(1.0, "Complete!")
 
         # Send completion message
@@ -269,6 +274,150 @@ async def clear_embeddings():
     """Clear current embeddings"""
     set_embeddings_state(None, None, None, None)
     return {"success": True}
+
+
+class SelectiveProcessRequest(BaseModel):
+    indices: list[int]
+    columns: ColumnConfig
+    config: EmbeddingConfig
+
+
+@router.post("/generate/selective")
+async def generate_selective_embeddings(request: SelectiveProcessRequest, background_tasks: BackgroundTasks):
+    """Re-embed only specified row indices"""
+    global _processing
+
+    if _processing:
+        raise HTTPException(status_code=409, detail="Processing already in progress")
+
+    data, columns = get_current_data()
+    if not data:
+        raise HTTPException(status_code=400, detail="No data loaded")
+
+    # Validate indices
+    valid_indices = [i for i in request.indices if 0 <= i < len(data)]
+    if not valid_indices:
+        raise HTTPException(status_code=400, detail="No valid indices provided")
+
+    _processing = True
+
+    # Run in background
+    background_tasks.add_task(
+        _process_selective_embeddings,
+        data,
+        valid_indices,
+        request.columns,
+        request.config
+    )
+
+    return {"status": "started", "total_items": len(valid_indices)}
+
+
+async def _process_selective_embeddings(
+    data: list[dict],
+    indices: list[int],
+    columns: ColumnConfig,
+    config: EmbeddingConfig
+):
+    """Background task to selectively re-embed specific rows"""
+    global _processing
+    import numpy as np
+
+    try:
+        total = len(indices)
+
+        async def progress(pct: float, msg: str):
+            await broadcast_progress("embedding", pct, msg, current=int(pct * total), total=total)
+
+        await progress(0.01, f"Re-embedding {total} modified rows...")
+
+        # Get existing embeddings
+        existing_embeddings, existing_coords, existing_clusters, _ = get_embeddings_state()
+        
+        if existing_embeddings is None:
+            await broadcast_progress("error", 0, "No existing embeddings to update")
+            return
+
+        # Extract data for selected indices
+        selected_data = [data[i] for i in indices]
+        texts = [row.get(columns.text, '') if columns.text else '' for row in selected_data]
+        images = [row.get(columns.image, '') if columns.image else '' for row in selected_data]
+
+        new_embeddings = None
+
+        if config.mode == "text":
+            await progress(0.05, "Re-embedding text...")
+
+            def sync_progress(p, m):
+                asyncio.create_task(progress(0.05 + p * 0.7, m))
+
+            new_embeddings = embed_texts(
+                texts,
+                model_name=config.model,
+                batch_size=config.batch_size,
+                progress_callback=sync_progress
+            )
+        else:
+            # Multimodal - use images
+            await progress(0.05, "Re-embedding with CLIP...")
+
+            def sync_progress(p, m):
+                asyncio.create_task(progress(0.05 + p * 0.7, m))
+
+            if config.source == "image":
+                new_embeddings = embed_images(
+                    images,
+                    model_name=config.image_model,
+                    batch_size=config.batch_size,
+                    progress_callback=sync_progress
+                )
+            else:
+                new_embeddings = embed_texts_clip(
+                    texts,
+                    model_name=config.image_model,
+                    batch_size=config.batch_size,
+                    progress_callback=sync_progress
+                )
+
+        await progress(0.75, "Updating embeddings...")
+
+        # Merge new embeddings into existing
+        updated_embeddings = np.array(existing_embeddings)
+        for i, idx in enumerate(indices):
+            updated_embeddings[idx] = new_embeddings[i]
+
+        await progress(0.85, "Recomputing visualization...")
+
+        # Recompute UMAP and clustering with updated embeddings
+        def viz_progress(p, m):
+            asyncio.create_task(progress(0.85 + p * 0.1, m))
+
+        coords, clusters = compute_visualization(
+            updated_embeddings,
+            k=config.k_clusters,
+            progress_callback=viz_progress
+        )
+
+        # Store results
+        set_embeddings_state(
+            updated_embeddings.tolist(),
+            coords.tolist(),
+            clusters.tolist(),
+            config
+        )
+
+        # Clear modified indices
+        clear_modified_indices()
+
+        await progress(1.0, "Complete!")
+        await broadcast_progress("complete", 1.0, "Selective embedding complete", current=total, total=total)
+
+    except Exception as e:
+        await broadcast_progress("error", 0, str(e))
+        raise
+
+    finally:
+        _processing = False
 
 
 # Import numpy for get_result

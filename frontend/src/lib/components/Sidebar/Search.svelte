@@ -1,15 +1,27 @@
 <script lang="ts">
-	import { searchQuery, searchResults, highlightedNodes, embeddingConfig, nodes } from '$lib/stores/data';
-	import { queryType, searchThreshold, addNotification, viewState } from '$lib/stores/ui';
-	import { searchText, searchImage } from '$lib/api/client';
+	import {
+		searchQuery,
+		searchResults,
+		highlightedNodes,
+		embeddingConfig,
+		nodes,
+		selectedNodes,
+	} from "$lib/stores/data";
+	import {
+		queryType,
+		searchThreshold,
+		addNotification,
+		viewState,
+	} from "$lib/stores/ui";
+	import { searchText, searchImage } from "$lib/api/client";
 
 	let imageInput: HTMLInputElement;
 	let isSearching = false;
 
 	async function handleSearch() {
-		if ($queryType === 'text') {
+		if ($queryType === "text") {
 			if (!$searchQuery.trim()) {
-				addNotification('warning', 'Enter a search query');
+				addNotification("warning", "Enter a search query");
 				return;
 			}
 
@@ -18,11 +30,16 @@
 				const result = await searchText($searchQuery, $searchThreshold);
 				if (result.data) {
 					searchResults.set(result.data.matches);
-					highlightedNodes.set(new Set(result.data.matches.map(m => m.index)));
-					addNotification('success', `Found ${result.data.total} matches`);
+					highlightedNodes.set(
+						new Set(result.data.matches.map((m) => m.index)),
+					);
+					addNotification(
+						"success",
+						`Found ${result.data.total} matches`,
+					);
 				}
 			} catch (err) {
-				addNotification('error', 'Search failed');
+				addNotification("error", "Search failed");
 			} finally {
 				isSearching = false;
 			}
@@ -40,14 +57,22 @@
 		reader.onload = async () => {
 			isSearching = true;
 			try {
-				const result = await searchImage(reader.result as string, $searchThreshold);
+				const result = await searchImage(
+					reader.result as string,
+					$searchThreshold,
+				);
 				if (result.data) {
 					searchResults.set(result.data.matches);
-					highlightedNodes.set(new Set(result.data.matches.map(m => m.index)));
-					addNotification('success', `Found ${result.data.total} matches`);
+					highlightedNodes.set(
+						new Set(result.data.matches.map((m) => m.index)),
+					);
+					addNotification(
+						"success",
+						`Found ${result.data.total} matches`,
+					);
 				}
 			} catch (err) {
-				addNotification('error', 'Image search failed');
+				addNotification("error", "Image search failed");
 			} finally {
 				isSearching = false;
 			}
@@ -56,29 +81,30 @@
 	}
 
 	function clearSearch() {
-		searchQuery.set('');
+		searchQuery.set("");
 		searchResults.set([]);
 		highlightedNodes.set(new Set());
 	}
 
 	function focusResult(index: number) {
 		highlightedNodes.set(new Set([index]));
+		selectedNodes.set(new Set([index])); // Also select the node to sync with data table
 
 		// Zoom to the node
-		const node = $nodes.find(n => n.id === index);
+		const node = $nodes.find((n) => n.id === index);
 		if (node) {
 			viewState.set({
 				target: [node.position[0], node.position[1], 0],
-				zoom: 8  // Max zoom level to focus closely on the node
+				zoom: 8, // Max zoom level to focus closely on the node
 			});
 		}
 	}
 
-	$: canImageSearch = $embeddingConfig.mode === 'multimodal';
+	$: canImageSearch = $embeddingConfig.mode === "multimodal";
 </script>
 
 <div class="panel search-panel">
-	<h2>3) Semantic Search</h2>
+	<h2>Semantic Search</h2>
 
 	<div class="search-controls">
 		<div class="query-type-row">
@@ -87,17 +113,22 @@
 				Text
 			</label>
 			<label class:disabled={!canImageSearch}>
-				<input type="radio" bind:group={$queryType} value="image" disabled={!canImageSearch} />
+				<input
+					type="radio"
+					bind:group={$queryType}
+					value="image"
+					disabled={!canImageSearch}
+				/>
 				Image
 			</label>
 		</div>
 
-		{#if $queryType === 'text'}
+		{#if $queryType === "text"}
 			<input
 				type="text"
 				placeholder="e.g. a red dog"
 				bind:value={$searchQuery}
-				on:keypress={(e) => e.key === 'Enter' && handleSearch()}
+				on:keypress={(e) => e.key === "Enter" && handleSearch()}
 			/>
 		{:else}
 			<div class="image-search-hint">
@@ -114,7 +145,11 @@
 		/>
 
 		<div class="threshold-row">
-			<label>Threshold: <span class="tag">{$searchThreshold.toFixed(2)}</span></label>
+			<label
+				>Threshold: <span class="tag"
+					>{$searchThreshold.toFixed(2)}</span
+				></label
+			>
 			<input
 				type="range"
 				min="0"
@@ -125,8 +160,12 @@
 		</div>
 
 		<div class="btn-row">
-			<button class="btn btn-primary" on:click={handleSearch} disabled={isSearching}>
-				{isSearching ? 'Searching...' : 'Search'}
+			<button
+				class="btn btn-primary"
+				on:click={handleSearch}
+				disabled={isSearching}
+			>
+				{isSearching ? "Searching..." : "Search"}
 			</button>
 			<button class="btn btn-secondary" on:click={clearSearch}>
 				Clear
@@ -145,8 +184,12 @@
 						class="result-item"
 						on:click={() => focusResult(match.index)}
 					>
-						<span class="result-label">{match.data?.label || `Node ${match.index}`}</span>
-						<span class="result-sim">{match.similarity.toFixed(3)}</span>
+						<span class="result-label"
+							>{match.data?.label || `Node ${match.index}`}</span
+						>
+						<span class="result-sim"
+							>{match.similarity.toFixed(3)}</span
+						>
 					</button>
 				{/each}
 			</div>

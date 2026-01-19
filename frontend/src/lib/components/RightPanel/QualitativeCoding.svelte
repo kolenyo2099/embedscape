@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { selectedNodes, nodes, hoveredNode } from '$lib/stores/data';
+	import { selectedNodes, nodes, hoveredNode } from "$lib/stores/data";
 	import {
 		qualitativeCodes,
 		codeApplications,
@@ -15,20 +15,28 @@
 		exportCodingData,
 		importCodingData,
 		clearAllCodingData,
-		type QualitativeCode
-	} from '$lib/stores/coding';
-	import { addNotification, selectionEnabled, selectionTool, colorMode } from '$lib/stores/ui';
-	import CodeTree from './CodeTree.svelte';
-	import MemoPanel from './MemoPanel.svelte';
+		type QualitativeCode,
+	} from "$lib/stores/coding";
+	import {
+		addNotification,
+		selectionEnabled,
+		selectionTool,
+		colorMode,
+	} from "$lib/stores/ui";
+	import CodeTree from "./CodeTree.svelte";
+	import MemoPanel from "./MemoPanel.svelte";
 
-	let newCodeName = '';
+	let newCodeName = "";
 	let newCodeLevel: 1 | 2 | 3 = 1;
 	let selectedParentId: string | null = null;
 	let showMemos = false;
 	let editingCode: QualitativeCode | null = null;
 
 	// Compute stats
-	$: totalApplications = Array.from($codeFrequency.values()).reduce((a, b) => a + b, 0);
+	$: totalApplications = Array.from($codeFrequency.values()).reduce(
+		(a, b) => a + b,
+		0,
+	);
 
 	function clearSelection() {
 		selectedNodes.set(new Set());
@@ -36,93 +44,106 @@
 
 	function handleExport() {
 		const data = exportCodingData();
-		const blob = new Blob([data], { type: 'application/json' });
+		const blob = new Blob([data], { type: "application/json" });
 		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
+		const a = document.createElement("a");
 		a.href = url;
-		a.download = `coding-export-${new Date().toISOString().split('T')[0]}.json`;
+		a.download = `coding-export-${new Date().toISOString().split("T")[0]}.json`;
 		a.click();
 		URL.revokeObjectURL(url);
-		addNotification('success', 'Coding data exported');
+		addNotification("success", "Coding data exported");
 	}
 
 	async function handleImport() {
-		const input = document.createElement('input');
-		input.type = 'file';
-		input.accept = '.json';
+		const input = document.createElement("input");
+		input.type = "file";
+		input.accept = ".json";
 		input.onchange = async (e) => {
 			const file = (e.target as HTMLInputElement).files?.[0];
 			if (!file) return;
 			try {
 				const text = await file.text();
 				if (importCodingData(text)) {
-					addNotification('success', 'Coding data imported');
+					addNotification("success", "Coding data imported");
 				} else {
-					addNotification('error', 'Failed to import coding data');
+					addNotification("error", "Failed to import coding data");
 				}
 			} catch {
-				addNotification('error', 'Failed to read file');
+				addNotification("error", "Failed to read file");
 			}
 		};
 		input.click();
 	}
 
 	function handleClearCoding() {
-		if (confirm('Clear all coding data? This cannot be undone.')) {
+		if (confirm("Clear all coding data? This cannot be undone.")) {
 			clearAllCodingData();
-			addNotification('info', 'All coding data cleared');
+			addNotification("info", "All coding data cleared");
 		}
 	}
 
 	// Get codes applied to currently selected or hovered node
-	$: currentNodeId = $selectedNodes.size === 1
-		? Array.from($selectedNodes)[0]
-		: $hoveredNode;
+	$: currentNodeId =
+		$selectedNodes.size === 1
+			? Array.from($selectedNodes)[0]
+			: $hoveredNode;
 
-	$: currentNodeCodes = currentNodeId !== null
-		? $codeApplications
-			.filter(a => a.nodeId === currentNodeId)
-			.map(a => $qualitativeCodes.find(c => c.id === a.codeId))
-			.filter((c): c is QualitativeCode => c !== undefined)
-		: [];
+	$: currentNodeCodes =
+		currentNodeId !== null
+			? $codeApplications
+					.filter((a) => a.nodeId === currentNodeId)
+					.map((a) =>
+						$qualitativeCodes.find((c) => c.id === a.codeId),
+					)
+					.filter((c): c is QualitativeCode => c !== undefined)
+			: [];
 
-	$: currentNode = currentNodeId !== null ? $nodes.find(n => n.id === currentNodeId) : null;
+	$: currentNode =
+		currentNodeId !== null
+			? $nodes.find((n) => n.id === currentNodeId)
+			: null;
 
 	function handleCreateCode() {
 		if (!newCodeName.trim()) {
-			addNotification('warning', 'Enter a code name');
+			addNotification("warning", "Enter a code name");
 			return;
 		}
 
 		const code = createCode(
 			newCodeName.trim(),
 			selectedParentId,
-			newCodeLevel
+			newCodeLevel,
 		);
 
-		addNotification('success', `Created code: ${code.name}`);
-		newCodeName = '';
+		addNotification("success", `Created code: ${code.name}`);
+		newCodeName = "";
 		selectedParentId = null;
 	}
 
 	function handleApplyCode(codeId: string) {
 		if ($selectedNodes.size === 0) {
-			addNotification('warning', 'Select nodes first');
+			addNotification("warning", "Select nodes first");
 			return;
 		}
 
 		applyCode(codeId, Array.from($selectedNodes));
-		addNotification('success', `Applied code to ${$selectedNodes.size} items`);
+		addNotification(
+			"success",
+			`Applied code to ${$selectedNodes.size} items`,
+		);
 	}
 
 	function handleRemoveCode(codeId: string) {
 		if ($selectedNodes.size === 0) {
-			addNotification('warning', 'Select nodes first');
+			addNotification("warning", "Select nodes first");
 			return;
 		}
 
 		removeCodeFromNodes(codeId, Array.from($selectedNodes));
-		addNotification('info', `Removed code from ${$selectedNodes.size} items`);
+		addNotification(
+			"info",
+			`Removed code from ${$selectedNodes.size} items`,
+		);
 	}
 
 	function handleQuickApply() {
@@ -132,10 +153,15 @@
 	}
 
 	function handleDeleteCode(codeId: string) {
-		const code = $qualitativeCodes.find(c => c.id === codeId);
-		if (code && confirm(`Delete code "${code.name}"? This will remove all applications.`)) {
+		const code = $qualitativeCodes.find((c) => c.id === codeId);
+		if (
+			code &&
+			confirm(
+				`Delete code "${code.name}"? This will remove all applications.`,
+			)
+		) {
 			deleteCode(codeId);
-			addNotification('info', `Deleted code: ${code.name}`);
+			addNotification("info", `Deleted code: ${code.name}`);
 		}
 	}
 
@@ -148,7 +174,7 @@
 			updateCode(editingCode.id, {
 				name: editingCode.name,
 				description: editingCode.description,
-				color: editingCode.color
+				color: editingCode.color,
 			});
 			editingCode = null;
 		}
@@ -161,9 +187,12 @@
 	// Get level label
 	function getLevelLabel(level: 1 | 2 | 3): string {
 		switch (level) {
-			case 1: return 'Theme';
-			case 2: return 'Category';
-			case 3: return 'Subcode';
+			case 1:
+				return "Theme";
+			case 2:
+				return "Category";
+			case 3:
+				return "Subcode";
 		}
 	}
 </script>
@@ -177,17 +206,10 @@
 				<button
 					class="toggle-btn"
 					class:active={$selectionEnabled}
-					on:click={() => selectionEnabled.update(v => !v)}
+					on:click={() => selectionEnabled.update((v) => !v)}
 				>
-					{$selectionEnabled ? 'On' : 'Off'}
+					{$selectionEnabled ? "On" : "Off"}
 				</button>
-			</div>
-			<div class="control-field">
-				<label for="color-mode">Color by</label>
-				<select id="color-mode" bind:value={$colorMode}>
-					<option value="cluster">Cluster</option>
-					<option value="tag">Code</option>
-				</select>
 			</div>
 		</div>
 
@@ -197,8 +219,8 @@
 				<span class="tool-label">Tool:</span>
 				<button
 					class="tool-btn"
-					class:active={$selectionTool === 'pointer'}
-					on:click={() => selectionTool.set('pointer')}
+					class:active={$selectionTool === "pointer"}
+					on:click={() => selectionTool.set("pointer")}
 					title="Pointer - click to select/deselect"
 				>
 					<span class="tool-icon">👆</span>
@@ -206,8 +228,8 @@
 				</button>
 				<button
 					class="tool-btn"
-					class:active={$selectionTool === 'rectangle'}
-					on:click={() => selectionTool.set('rectangle')}
+					class:active={$selectionTool === "rectangle"}
+					on:click={() => selectionTool.set("rectangle")}
 					title="Rectangle - drag to select area"
 				>
 					<span class="tool-icon">⬜</span>
@@ -215,8 +237,8 @@
 				</button>
 				<button
 					class="tool-btn"
-					class:active={$selectionTool === 'lasso'}
-					on:click={() => selectionTool.set('lasso')}
+					class:active={$selectionTool === "lasso"}
+					on:click={() => selectionTool.set("lasso")}
 					title="Lasso - draw to select area"
 				>
 					<span class="tool-icon">〰️</span>
@@ -235,8 +257,12 @@
 				<span class="stat-label">applied</span>
 			</div>
 			<div class="coding-actions">
-				<button class="btn-xs" on:click={handleExport} title="Export">Export</button>
-				<button class="btn-xs" on:click={handleImport} title="Import">Import</button>
+				<button class="btn-xs" on:click={handleExport} title="Export"
+					>Export</button
+				>
+				<button class="btn-xs" on:click={handleImport} title="Import"
+					>Import</button
+				>
 			</div>
 		</div>
 	</div>
@@ -247,13 +273,17 @@
 			<h4>Selection</h4>
 			<span class="badge">{$selectedNodes.size} items</span>
 			{#if $selectedNodes.size > 0}
-				<button class="clear-btn" on:click={clearSelection}>Clear</button>
+				<button class="clear-btn" on:click={clearSelection}
+					>Clear</button
+				>
 			{/if}
 		</div>
 
 		{#if currentNode}
 			<div class="current-node-preview">
-				<div class="node-label">{currentNode.data?.label || `Node ${currentNode.id}`}</div>
+				<div class="node-label">
+					{currentNode.data?.label || `Node ${currentNode.id}`}
+				</div>
 				{#if currentNodeCodes.length > 0}
 					<div class="applied-codes">
 						{#each currentNodeCodes as code}
@@ -265,8 +295,9 @@
 								{code.name}
 								<button
 									class="remove-tag"
-									on:click|stopPropagation={() => handleRemoveCode(code.id)}
-								>×</button>
+									on:click|stopPropagation={() =>
+										handleRemoveCode(code.id)}>×</button
+								>
 							</span>
 						{/each}
 					</div>
@@ -287,10 +318,15 @@
 
 	<!-- Quick Apply -->
 	{#if $activeCodeId}
-		{@const activeCode = $qualitativeCodes.find(c => c.id === $activeCodeId)}
+		{@const activeCode = $qualitativeCodes.find(
+			(c) => c.id === $activeCodeId,
+		)}
 		{#if activeCode}
 			<div class="quick-apply">
-				<span class="code-tag active" style="background: {activeCode.color}">
+				<span
+					class="code-tag active"
+					style="background: {activeCode.color}"
+				>
 					{activeCode.name}
 				</span>
 				<button
@@ -300,7 +336,10 @@
 				>
 					Apply to Selection
 				</button>
-				<button class="btn btn-secondary btn-sm" on:click={() => activeCodeId.set(null)}>
+				<button
+					class="btn btn-secondary btn-sm"
+					on:click={() => activeCodeId.set(null)}
+				>
 					Clear
 				</button>
 			</div>
@@ -311,7 +350,11 @@
 	<div class="section code-tree-section">
 		<div class="section-header">
 			<h4>Codes</h4>
-			<button class="btn-icon" on:click={() => showMemos = !showMemos} title="Toggle Memos">
+			<button
+				class="btn-icon"
+				on:click={() => (showMemos = !showMemos)}
+				title="Toggle Memos"
+			>
 				📝
 			</button>
 		</div>
@@ -331,7 +374,7 @@
 					on:delete={(e) => handleDeleteCode(e.detail)}
 					on:edit={(e) => startEditCode(e.detail)}
 					on:setActive={(e) => setActiveCode(e.detail)}
-					on:setParent={(e) => selectedParentId = e.detail}
+					on:setParent={(e) => (selectedParentId = e.detail)}
 				/>
 			</div>
 		{/if}
@@ -348,7 +391,7 @@
 				type="text"
 				placeholder="Code name..."
 				bind:value={newCodeName}
-				on:keypress={(e) => e.key === 'Enter' && handleCreateCode()}
+				on:keypress={(e) => e.key === "Enter" && handleCreateCode()}
 			/>
 
 			<div class="create-options">
@@ -384,7 +427,12 @@
 
 <!-- Edit Code Modal -->
 {#if editingCode}
-	<div class="modal-backdrop" on:click|self={() => editingCode = null} on:keydown={(e) => e.key === 'Escape' && (editingCode = null)} role="presentation">
+	<div
+		class="modal-backdrop"
+		on:click|self={() => (editingCode = null)}
+		on:keydown={(e) => e.key === "Escape" && (editingCode = null)}
+		role="presentation"
+	>
 		<div class="edit-modal">
 			<h3>Edit Code</h3>
 
@@ -395,7 +443,8 @@
 
 			<label>
 				Description
-				<textarea bind:value={editingCode.description} rows="3"></textarea>
+				<textarea bind:value={editingCode.description} rows="3"
+				></textarea>
 			</label>
 
 			<label>
@@ -406,15 +455,21 @@
 							class="color-swatch"
 							class:selected={editingCode.color === color}
 							style="background: {color}"
-							on:click={() => editingCode && (editingCode.color = color)}
+							on:click={() =>
+								editingCode && (editingCode.color = color)}
 						></button>
 					{/each}
 				</div>
 			</label>
 
 			<div class="modal-actions">
-				<button class="btn btn-secondary" on:click={() => editingCode = null}>Cancel</button>
-				<button class="btn btn-primary" on:click={saveEditCode}>Save</button>
+				<button
+					class="btn btn-secondary"
+					on:click={() => (editingCode = null)}>Cancel</button
+				>
+				<button class="btn btn-primary" on:click={saveEditCode}
+					>Save</button
+				>
 			</div>
 		</div>
 	</div>

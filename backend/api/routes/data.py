@@ -4,8 +4,9 @@ Data upload and parsing routes
 import io
 import json
 from typing import Optional
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Body
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from models.schemas import DataPreview
 from services.parser import parse_csv, parse_ndjson, flatten_social_media_data
@@ -15,16 +16,36 @@ router = APIRouter()
 # In-memory storage for current session data
 _current_data: list[dict] = []
 _current_columns: list[str] = []
+_modified_indices: set[int] = set()
+
+
+class RowUpdate(BaseModel):
+    updates: dict
+
+
+class AddColumnRequest(BaseModel):
+    name: str
+    default_value: str = ""
 
 
 def get_current_data():
     return _current_data, _current_columns
 
 
+def get_modified_indices():
+    return _modified_indices
+
+
+def clear_modified_indices():
+    global _modified_indices
+    _modified_indices = set()
+
+
 def set_current_data(data: list[dict], columns: list[str]):
-    global _current_data, _current_columns
+    global _current_data, _current_columns, _modified_indices
     _current_data = data
     _current_columns = columns
+    _modified_indices = set()  # Clear modified on new data load
 
 
 @router.post("/upload")
@@ -208,4 +229,169 @@ async def get_columns():
 async def clear_data():
     """Clear current session data"""
     set_current_data([], [])
+    return {"success": True}
+
+
+@router.put("/row/{index}")
+async def update_row(index: int, row_update: RowUpdate):
+    """Update a specific row's data"""
+    global _modified_indices
+    
+    if index < 0 or index >= len(_current_data):
+        raise HTTPException(status_code=404, detail=f"Row index {index} out of range")
+    
+    # Update the row with new values
+    for key, value in row_update.updates.items():
+        _current_data[index][key] = value
+    
+    # Track as modified
+    _modified_indices.add(index)
+    
+    return {"success": True, "index": index, "modified_count": len(_modified_indices)}
+
+
+class SplitColumnRequest(BaseModel):
+    source_column: str
+    mode: str  # 'delimiter' or 'regex'
+    pattern: str  # delimiter char or regex pattern
+    new_column_prefix: str
+    keep_original: bool = True
+
+
+@router.post("/column")
+async def add_column(request: AddColumnRequest):
+    """Add a new column to all rows"""
+    global _current_columns
+    
+    if not _current_data:
+        raise HTTPException(status_code=400, detail="No data loaded")
+    
+    if request.name in _current_columns:
+        raise HTTPException(status_code=400, detail=f"Column '{request.name}' already exists")
+    
+    # Add column to all rows
+    for row in _current_data:
+        row[request.name] = request.default_value
+    
+    # Add to columns list
+    _current_columns.append(request.name)
+    
+    return {
+        "success": True,
+        "column": request.name,
+        "total_columns": len([c for c in _current_columns if not c.startswith('__')])
+    }
+
+
+@router.post("/column/split")
+async def split_column(request: SplitColumnRequest):
+    """Split a column into multiple columns by delimiter or regex"""
+    import re
+    global _current_columns
+    
+    if not _current_data:
+        raise HTTPException(status_code=400, detail="No data loaded")
+    
+    if request.source_column not in _current_columns:
+        raise HTTPException(status_code=400, detail=f"Column '{request.source_column}' not found")
+    
+    # Determine the maximum number of parts we'll need
+    max_parts = 0
+    split_results = []
+    
+    for row in _current_data:
+        value = str(row.get(request.source_column, "") or "")
+        
+        if request.mode == 'delimiter':
+            # Handle special delimiters
+            if request.pattern == '\\t':
+                parts = value.split('\t')
+            elif request.pattern == '\\n':
+                parts = value.split('\n')
+            else:
+                parts = value.split(request.pattern)
+        else:  # regex mode
+            try:
+                # Use findall for capture groups or split
+                pattern = re.compile(request.pattern)
+                if '(' in request.pattern:
+                    # Has capture groups - use findall
+                    matches = pattern.findall(value)
+                    if matches:
+                        # Flatten if we got tuples (multiple groups)
+                        if isinstance(matches[0], tuple):
+                            parts = list(matches[0])
+                        else:
+                            parts = matches
+                    else:
+                        parts = ['']
+                else:
+                    # No capture groups - use split
+                    parts = pattern.split(value)
+            except re.error as e:
+                raise HTTPException(status_code=400, detail=f"Invalid regex: {str(e)}")
+        
+        # Strip whitespace from parts
+        parts = [p.strip() for p in parts]
+        split_results.append(parts)
+        max_parts = max(max_parts, len(parts))
+    
+    if max_parts == 0:
+        raise HTTPException(status_code=400, detail="No data to split")
+    
+    # Create new column names
+    new_columns = []
+    for i in range(max_parts):
+        col_name = f"{request.new_column_prefix}_{i + 1}"
+        # Ensure unique names
+        base_name = col_name
+        counter = 1
+        while col_name in _current_columns:
+            col_name = f"{base_name}_{counter}"
+            counter += 1
+        new_columns.append(col_name)
+    
+    # Add new columns to each row
+    for i, row in enumerate(_current_data):
+        parts = split_results[i]
+        for j, col_name in enumerate(new_columns):
+            row[col_name] = parts[j] if j < len(parts) else ""
+    
+    # Update columns list
+    if request.keep_original:
+        # Insert new columns after the source column
+        source_idx = _current_columns.index(request.source_column)
+        for i, col_name in enumerate(new_columns):
+            _current_columns.insert(source_idx + 1 + i, col_name)
+    else:
+        # Replace the source column with new columns
+        source_idx = _current_columns.index(request.source_column)
+        _current_columns.remove(request.source_column)
+        for i, col_name in enumerate(new_columns):
+            _current_columns.insert(source_idx + i, col_name)
+        # Remove source data from rows
+        for row in _current_data:
+            if request.source_column in row:
+                del row[request.source_column]
+    
+    return {
+        "success": True,
+        "new_columns": new_columns,
+        "total_columns": len([c for c in _current_columns if not c.startswith('__')])
+    }
+
+
+@router.get("/modified")
+async def get_modified():
+    """Get list of modified row indices"""
+    return {
+        "indices": list(_modified_indices),
+        "count": len(_modified_indices)
+    }
+
+
+@router.delete("/modified/clear")
+async def clear_modified():
+    """Clear the modified indices tracking"""
+    clear_modified_indices()
     return {"success": True}

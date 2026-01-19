@@ -1,10 +1,11 @@
 <script lang="ts">
-	import Upload from './Upload.svelte';
-	import Config from './Config.svelte';
-	import Progress from './Progress.svelte';
-	import Search from './Search.svelte';
-	import { hasData, hasEmbeddings } from '$lib/stores/data';
-	import { isProcessing } from '$lib/stores/ui';
+	import Upload from "./Upload.svelte";
+	import Config from "./Config.svelte";
+	import Progress from "./Progress.svelte";
+	import Search from "./Search.svelte";
+	import Design from "./Design.svelte";
+	import { hasData, hasEmbeddings } from "$lib/stores/data";
+	import { isProcessing } from "$lib/stores/ui";
 </script>
 
 <div class="sidebar-content">
@@ -25,6 +26,11 @@
 		<!-- Progress Panel (shown during processing) -->
 		{#if $isProcessing}
 			<Progress />
+		{/if}
+
+		<!-- Design Panel (shown after embeddings) - above Search -->
+		{#if $hasEmbeddings}
+			<Design />
 		{/if}
 
 		<!-- Search Panel (shown after embeddings) -->
