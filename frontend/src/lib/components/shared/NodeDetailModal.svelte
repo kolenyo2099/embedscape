@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from "svelte";
+	import { createEventDispatcher, onDestroy } from "svelte";
 	import { columnConfig, type Node } from "$lib/stores/data";
 	import { codeApplications, qualitativeCodes } from "$lib/stores/coding";
 
@@ -7,6 +7,11 @@
 	export let show = false;
 
 	const dispatch = createEventDispatcher();
+
+	// Lazy loading state
+	let mediaLoaded = false;
+	let videoElement: HTMLVideoElement | null = null;
+	let imageElement: HTMLImageElement | null = null;
 
 	// Get codes applied to this node
 	$: nodeCodes = node
@@ -17,7 +22,45 @@
 		: [];
 
 	function close() {
+		// Cleanup media elements before closing
+		cleanupMedia();
 		dispatch("close");
+	}
+
+	function cleanupMedia() {
+		// Pause and clear video if present
+		if (videoElement) {
+			videoElement.pause();
+			videoElement.src = "";
+			videoElement.load(); // Release resources
+			videoElement = null;
+		}
+
+		// Clear image source
+		if (imageElement) {
+			imageElement.src = "";
+			imageElement = null;
+		}
+
+		mediaLoaded = false;
+	}
+
+	// Cleanup on component destroy
+	onDestroy(() => {
+		cleanupMedia();
+	});
+
+	// Load media when modal is shown
+	$: if (show && !mediaLoaded) {
+		// Small delay to ensure modal is visible before loading media
+		setTimeout(() => {
+			mediaLoaded = true;
+		}, 50);
+	}
+
+	// Reset when modal is hidden
+	$: if (!show) {
+		cleanupMedia();
 	}
 
 	function handleBackdropClick(e: MouseEvent) {
@@ -34,45 +77,32 @@
 
 	// Helper to safely get a field value
 	function getFieldValue(fieldName: string): string {
-		console.log(
-			"getFieldValue called with:",
-			fieldName,
-			"length:",
-			fieldName?.length,
-		);
-		if (!fieldName || !node?.data) {
-			console.log("  -> Returning empty: no fieldName or no node.data");
-			return "";
-		}
+		if (!fieldName || !node?.data) return "";
 		const val = node.data[fieldName];
-		console.log("  -> Looking up node.data[" + fieldName + "]:", val);
-		console.log("  -> fieldName in node.data?", fieldName in node.data);
-		if (val === null || val === undefined || val === "") {
-			console.log("  -> Returning empty: val is null/undefined/empty");
-			return "";
-		}
-		console.log("  -> Returning:", String(val));
+		if (val === null || val === undefined || val === "") return "";
 		return String(val);
 	}
 
-	// Get display values - only show if the column is configured AND has data
+	// Internal media data (from direct uploads)
+	$: internalImage = node?.data?.["__imageData"];
+	$: internalVideo = node?.data?.["__videoData"];
+
+	// Get display values - prioritize internal media if available
 	$: label =
 		node && $columnConfig.label ? getFieldValue($columnConfig.label) : "";
 	$: displayLabel = label || `Item ${(node?.id ?? 0) + 1}`;
 	$: text = node ? getFieldValue($columnConfig.text) : "";
-	$: image = node ? getFieldValue($columnConfig.image) : "";
-	$: video = node ? getFieldValue($columnConfig.video) : "";
+	$: image = internalImage
+		? String(internalImage)
+		: node
+			? getFieldValue($columnConfig.image)
+			: "";
+	$: video = internalVideo
+		? String(internalVideo)
+		: node
+			? getFieldValue($columnConfig.video)
+			: "";
 	$: link = node ? getFieldValue($columnConfig.link) : "";
-
-	// DEBUG: Log what we're working with
-	$: if (node && show) {
-		console.log("=== NodeDetailModal Debug ===");
-		console.log("columnConfig:", $columnConfig);
-		console.log("node.data:", node.data);
-		console.log("node.data keys:", Object.keys(node.data || {}));
-		console.log("Extracted values:", { text, label, image, video, link });
-		console.log("============================");
-	}
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -93,28 +123,41 @@
 
 			<div class="modal-body">
 				<!-- Image preview -->
-				{#if image}
+				{#if image && mediaLoaded}
 					<div class="preview">
-						<img src={image} alt="Preview" />
-						<div class="caption small muted">
-							Image from column <strong
-								>{$columnConfig.image}</strong
-							>
-						</div>
+						<img
+							bind:this={imageElement}
+							src={image}
+							alt="Preview"
+						/>
+						{#if !internalImage}
+							<div class="caption small muted">
+								Image from column <strong
+									>{$columnConfig.image}</strong
+								>
+							</div>
+						{/if}
 					</div>
 				{/if}
 
 				<!-- Video preview -->
-				{#if video}
+				{#if video && mediaLoaded}
 					<div class="preview">
-						<video src={video} controls>
+						<video
+							bind:this={videoElement}
+							src={video}
+							controls
+							preload="metadata"
+						>
 							<track kind="captions" />
 						</video>
-						<div class="caption small muted">
-							Video from column <strong
-								>{$columnConfig.video}</strong
-							>
-						</div>
+						{#if !internalVideo}
+							<div class="caption small muted">
+								Video from column <strong
+									>{$columnConfig.video}</strong
+								>
+							</div>
+						{/if}
 					</div>
 				{/if}
 

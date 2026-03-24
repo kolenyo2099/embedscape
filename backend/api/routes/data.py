@@ -3,6 +3,9 @@ Data upload and parsing routes
 """
 import io
 import json
+import os
+import uuid
+from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Body
 from fastapi.responses import JSONResponse
@@ -17,6 +20,10 @@ router = APIRouter()
 _current_data: list[dict] = []
 _current_columns: list[str] = []
 _modified_indices: set[int] = set()
+
+# Media upload directory
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
 
 
 class RowUpdate(BaseModel):
@@ -84,9 +91,7 @@ async def upload_file(file: UploadFile = File(...)):
 
 @router.post("/upload/media")
 async def upload_media(files: list[UploadFile] = File(...)):
-    """Upload images or videos for direct embedding"""
-    import base64
-
+    """Upload images or videos - save to disk and return file paths"""
     media_items = []
 
     for file in files:
@@ -103,14 +108,22 @@ async def upload_media(files: list[UploadFile] = File(...)):
         else:
             continue
 
-        # Convert to base64 data URL
-        b64 = base64.b64encode(content).decode('utf-8')
-        data_url = f"data:{content_type};base64,{b64}"
+        # Generate unique filename to avoid collisions
+        file_ext = Path(file.filename).suffix
+        unique_filename = f"{uuid.uuid4()}{file_ext}"
+        file_path = UPLOAD_DIR / unique_filename
+
+        # Save file to disk
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        # Store relative path for serving
+        relative_path = f"/api/media/{unique_filename}"
 
         media_items.append({
             "name": file.filename,
             "type": media_type,
-            "data_url": data_url,
+            "url": relative_path,
             "size": len(content)
         })
 
@@ -122,23 +135,23 @@ async def upload_media(files: list[UploadFile] = File(...)):
             "link": "",
             "text": "",
             "__media_type": item["type"],
-            "__media_data": item["data_url"]
+            "__media_path": item["url"]
         }
         if item["type"] == "image":
-            row["__imageData"] = item["data_url"]
+            row["__imageData"] = item["url"]
             row["__videoData"] = ""
         else:
             row["__imageData"] = ""
-            row["__videoData"] = item["data_url"]
+            row["__videoData"] = item["url"]
         data.append(row)
 
-    columns = ["label", "link", "text", "__media_type", "__media_data", "__imageData", "__videoData"]
+    columns = ["label", "link", "text", "__media_type", "__media_path", "__imageData", "__videoData"]
     set_current_data(data, columns)
 
     return {
         "success": True,
         "count": len(media_items),
-        "items": [{"name": m["name"], "type": m["type"]} for m in media_items]
+        "items": [{"name": m["name"], "type": m["type"], "url": m["url"]} for m in media_items]
     }
 
 
@@ -153,13 +166,10 @@ async def get_all_data():
     # Filter out internal columns from display
     display_columns = [c for c in columns if not c.startswith('__')]
 
-    clean_data = []
-    for row in data:
-        clean_row = {k: v for k, v in row.items() if not k.startswith('__')}
-        clean_data.append(clean_row)
-
+    # Pass all data (including internal columns) so frontend can use them
+    # But filtering from 'columns' list hides them from standard UI tables
     return {
-        "rows": clean_data,
+        "rows": data,
         "columns": display_columns,
         "total_rows": len(data)
     }

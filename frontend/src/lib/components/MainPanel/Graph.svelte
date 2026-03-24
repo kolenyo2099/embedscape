@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, createEventDispatcher } from "svelte";
 	import { Deck } from "@deck.gl/core";
-	import { ScatterplotLayer, TextLayer, PolygonLayer } from "@deck.gl/layers";
+	import { ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 	import { OrthographicView } from "@deck.gl/core";
 	import {
 		nodes,
@@ -304,73 +304,6 @@
 		} while (current !== leftmost && iterations < maxIterations);
 
 		return hull;
-	}
-
-	function createClusterOutlineLayer(
-		nodeData: Node[],
-		config: typeof $designConfig,
-	): PolygonLayer<{
-		cluster: number;
-		polygon: [number, number][];
-		color: [number, number, number, number];
-	}> | null {
-		if (!config.showClusterOutlines || nodeData.length === 0) return null;
-
-		// Group nodes by cluster
-		const clusterGroups = new Map<number, [number, number][]>();
-		for (const node of nodeData) {
-			if (!clusterGroups.has(node.cluster)) {
-				clusterGroups.set(node.cluster, []);
-			}
-			clusterGroups.get(node.cluster)!.push(node.position);
-		}
-
-		// Compute convex hulls for each cluster
-		const polygons: {
-			cluster: number;
-			polygon: [number, number][];
-			color: [number, number, number, number];
-		}[] = [];
-		for (const [clusterId, points] of clusterGroups) {
-			// Only draw outlines for clusters with enough points
-			if (points.length >= 5) {
-				const hull = computeConvexHull(points);
-				if (hull.length >= 3) {
-					const color =
-						clusterColors[clusterId % clusterColors.length];
-					polygons.push({
-						cluster: clusterId,
-						polygon: hull,
-						// Lower opacity (20) for less visual clutter when clusters overlap
-						color: [color[0], color[1], color[2], 20] as [
-							number,
-							number,
-							number,
-							number,
-						],
-					});
-				}
-			}
-		}
-
-		return new PolygonLayer({
-			id: "cluster-outline-layer",
-			data: polygons,
-			pickable: false,
-			stroked: true,
-			filled: true,
-			lineWidthMinPixels: 2,
-			getPolygon: (d) => d.polygon,
-			getFillColor: (d) => d.color,
-			getLineColor: (d) =>
-				[d.color[0], d.color[1], d.color[2], 150] as [
-					number,
-					number,
-					number,
-					number,
-				],
-			getLineWidth: 2,
-		});
 	}
 
 	function initializeDeck() {
@@ -711,13 +644,6 @@
 			// Reference codeApplications, qualitativeCodes, and designConfig to trigger reactivity
 			const _ = [$codeApplications, $qualitativeCodes, $designConfig];
 			const layers: any[] = [];
-
-			// Add cluster outlines first (behind nodes)
-			const clusterLayer = createClusterOutlineLayer(
-				$nodes,
-				$designConfig,
-			);
-			if (clusterLayer) layers.push(clusterLayer);
 
 			// Add scatter layer
 			layers.push(createLayer($nodes, $highlightedNodes, $selectedNodes));

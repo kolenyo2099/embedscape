@@ -24,3 +24,4 @@ ENV/
 frontend/.env
 backend/.env
 .claude/
+backend/uploads/

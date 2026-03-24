@@ -21,9 +21,6 @@ export interface DesignConfig {
     // Labels
     showLabels: boolean;
     labelColumn: string;
-
-    // Cluster outlines
-    showClusterOutlines: boolean;
 }
 
 const defaultDesignConfig: DesignConfig = {
@@ -38,8 +35,7 @@ const defaultDesignConfig: DesignConfig = {
     opacityColumn: '',
     opacityRange: [0.2, 1.0],
     showLabels: false,
-    labelColumn: '',
-    showClusterOutlines: false
+    labelColumn: ''
 };
 
 export const designConfig = writable<DesignConfig>(defaultDesignConfig);

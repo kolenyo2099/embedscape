@@ -1,10 +1,13 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import {
 		rawData,
 		columns,
 		totalRows,
 		clearData,
 		hasEmbeddings,
+		isMediaMode,
+		mediaType,
 	} from "$lib/stores/data";
 	import { addNotification } from "$lib/stores/ui";
 	import {
@@ -19,6 +22,7 @@
 	let fileInput: HTMLInputElement;
 	let sessionInput: HTMLInputElement;
 	let mediaInput: HTMLInputElement;
+	let folderInput: HTMLInputElement;
 	let isDragging = false;
 	let isUploading = false;
 	let isSaving = false;
@@ -69,6 +73,27 @@
 				columns.set(allData.data.columns);
 				totalRows.set(allData.data.total_rows);
 			}
+
+			// Set media mode and detect type
+			isMediaMode.set(true);
+
+			// Detect media type from uploaded files
+			const fileArray = Array.from(files);
+			const hasImages = fileArray.some((f) =>
+				f.type.startsWith("image/"),
+			);
+			const hasVideos = fileArray.some((f) =>
+				f.type.startsWith("video/"),
+			);
+
+			if (hasImages && hasVideos) {
+				mediaType.set("mixed");
+			} else if (hasVideos) {
+				mediaType.set("video");
+			} else {
+				mediaType.set("image");
+			}
+
 			addNotification("success", `Loaded ${result.count} media files`);
 		} catch (err) {
 			addNotification(
@@ -138,22 +163,39 @@
 		const files = e.dataTransfer?.files;
 		if (!files?.length) return;
 
-		const file = files[0];
-		if (file.name.endsWith(".json")) {
-			handleSessionLoad(file);
-		} else if (
-			file.name.endsWith(".csv") ||
-			file.name.endsWith(".ndjson") ||
-			file.name.endsWith(".jsonl")
-		) {
-			handleFileUpload(file);
-		} else if (
-			file.type.startsWith("image/") ||
-			file.type.startsWith("video/")
-		) {
-			handleMediaUpload(files);
+		// Separate files by type
+		const fileArray = Array.from(files);
+		const mediaFiles = fileArray.filter(
+			(f) => f.type.startsWith("image/") || f.type.startsWith("video/"),
+		);
+		const csvFiles = fileArray.filter(
+			(f) =>
+				f.name.endsWith(".csv") ||
+				f.name.endsWith(".ndjson") ||
+				f.name.endsWith(".jsonl"),
+		);
+		const sessionFiles = fileArray.filter((f) => f.name.endsWith(".json"));
+
+		// Prioritize: if there are media files, handle them (supports mixed image+video)
+		if (mediaFiles.length > 0) {
+			// Create a FileList-like object from the filtered media files
+			const dt = new DataTransfer();
+			mediaFiles.forEach((f) => dt.items.add(f));
+			handleMediaUpload(dt.files);
+		} else if (csvFiles.length > 0) {
+			handleFileUpload(csvFiles[0]);
+		} else if (sessionFiles.length > 0) {
+			handleSessionLoad(sessionFiles[0]);
 		}
 	}
+
+	// Set webkitdirectory attribute on mount (can't be set in template due to TypeScript)
+	onMount(() => {
+		if (folderInput) {
+			// @ts-ignore - webkitdirectory is not in the TypeScript types but is widely supported
+			folderInput.webkitdirectory = true;
+		}
+	});
 </script>
 
 <div class="panel upload-panel">
@@ -167,16 +209,25 @@
 			on:dragover|preventDefault={() => (isDragging = true)}
 			on:dragleave={() => (isDragging = false)}
 			on:drop={handleDrop}
-			on:click={() => fileInput.click()}
+			on:click={() => mediaInput.click()}
 			role="button"
 			tabindex="0"
 		>
 			{#if isUploading}
 				<p>Uploading...</p>
 			{:else}
-				<p>📁 Drop file here or click to browse</p>
-				<small>CSV, NDJSON, images, or videos</small>
+				<p>📁 Drop files/folders here or click to browse</p>
+				<small>Images, videos, folders, or CSV/NDJSON</small>
 			{/if}
+		</div>
+		<div class="upload-alt">
+			<button class="link-btn" on:click={() => fileInput.click()}
+				>Load CSV/NDJSON</button
+			>
+			<span class="separator">•</span>
+			<button class="link-btn" on:click={() => folderInput.click()}
+				>Upload Folder</button
+			>
 		</div>
 	{/if}
 
@@ -193,6 +244,17 @@
 	<input
 		type="file"
 		bind:this={mediaInput}
+		accept="image/*,video/*"
+		multiple
+		on:change={(e) =>
+			e.currentTarget.files && handleMediaUpload(e.currentTarget.files)}
+		style="display: none"
+	/>
+
+	<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+	<input
+		type="file"
+		bind:this={folderInput}
 		accept="image/*,video/*"
 		multiple
 		on:change={(e) =>
@@ -299,5 +361,29 @@
 		cursor: pointer;
 		font-size: 0.8rem;
 		text-decoration: underline;
+	}
+
+	.upload-alt {
+		text-align: center;
+		margin-top: var(--spacing-xs);
+	}
+
+	.link-btn {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-size: 0.75rem;
+		text-decoration: underline;
+	}
+
+	.separator {
+		color: var(--text-secondary);
+		font-size: 0.75rem;
+		margin: 0 4px;
+	}
+
+	.link-btn:hover {
+		color: var(--berkeley-blue);
 	}
 </style>

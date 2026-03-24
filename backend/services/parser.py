@@ -52,8 +52,13 @@ def parse_ndjson(content: bytes) -> tuple[list[dict], list[str]]:
             continue
         try:
             row = json.loads(line)
-            flattened = flatten_social_media_data(row)
-            data.append(flattened)
+            # Only apply social media flattening if the data looks like a Zeeschuimer/social export
+            if _is_social_media_export(row):
+                row = flatten_social_media_data(row)
+            else:
+                # Stringify nested values for consistent handling downstream
+                row = {k: _safe_str(v) if isinstance(v, (dict, list)) else v for k, v in row.items()}
+            data.append(row)
         except json.JSONDecodeError:
             continue
 
@@ -68,6 +73,22 @@ def parse_ndjson(content: bytes) -> tuple[list[dict], list[str]]:
     columns = sorted(list(all_keys))
 
     return data, columns
+
+
+def _is_social_media_export(row: dict) -> bool:
+    """Detect if a row is from a social media export (Zeeschuimer or similar)"""
+    # Zeeschuimer exports have a 'data' key with nested platform data
+    if 'data' not in row:
+        return False
+    data = row.get('data')
+    if not isinstance(data, dict):
+        return False
+    # Check for known social media indicators
+    has_source_platform = 'source_platform' in row
+    has_twitter_fields = data.get('__typename') == 'Tweet' or 'legacy' in data
+    has_tiktok_fields = 'author' in data and 'uniqueId' in data.get('author', {})
+    has_instagram_fields = 'caption' in data or 'image_versions2' in data
+    return has_source_platform or has_twitter_fields or has_tiktok_fields or has_instagram_fields
 
 
 def flatten_social_media_data(row: dict[str, Any]) -> dict[str, Any]:

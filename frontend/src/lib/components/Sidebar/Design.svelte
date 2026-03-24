@@ -257,19 +257,6 @@
                     {/if}
                 </div>
             </div>
-
-            <hr class="section-divider" />
-
-            <!-- Cluster Outlines Section -->
-            <div class="section">
-                <label class="checkbox-option">
-                    <input
-                        type="checkbox"
-                        bind:checked={$designConfig.showClusterOutlines}
-                    />
-                    <span>Show Cluster Outlines</span>
-                </label>
-            </div>
         </div>
     {/if}
 </div>

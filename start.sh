@@ -20,6 +20,20 @@ print_msg() {
     echo -e "${2}${1}${NC}"
 }
 
+# Find a free port starting from a preferred one
+find_free_port() {
+    local port=${1:-8000}
+    while lsof -iTCP:$port -sTCP:LISTEN -t &>/dev/null 2>&1; do
+        print_msg "⚠️  Port $port is in use, trying $((port+1))..." "$YELLOW" >&2
+        port=$((port+1))
+    done
+    echo $port
+}
+
+BACKEND_PORT=$(find_free_port 8000)
+export BACKEND_PORT
+print_msg "✓ Backend will use port $BACKEND_PORT" "$GREEN"
+
 # Check if uv is installed
 if ! command -v uv &> /dev/null; then
     print_msg "❌ uv is not installed. Installing uv..." "$RED"
@@ -83,7 +97,7 @@ trap cleanup SIGINT SIGTERM EXIT
 print_msg "🐍 Starting Python backend on http://localhost:8000" "$BLUE"
 cd backend
 source .venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload &
+uvicorn main:app --host 0.0.0.0 --port $BACKEND_PORT --reload &
 BACKEND_PID=$!
 cd ..
 
@@ -100,8 +114,8 @@ cd ..
 print_msg "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" "$GREEN"
 print_msg "\n✨ EmbedScape is running!" "$GREEN"
 print_msg "   Frontend: http://localhost:5173" "$GREEN"
-print_msg "   Backend:  http://localhost:8000" "$GREEN"
-print_msg "   API Docs: http://localhost:8000/docs" "$GREEN"
+print_msg "   Backend:  http://localhost:$BACKEND_PORT" "$GREEN"
+print_msg "   API Docs: http://localhost:$BACKEND_PORT/docs" "$GREEN"
 print_msg "\n📊 Press Ctrl+C to stop both servers\n" "$YELLOW"
 
 # Wait for both processes

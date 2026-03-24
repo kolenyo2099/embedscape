@@ -319,10 +319,18 @@
 		});
 
 		try {
+			const configToSend = {
+				...$embeddingConfig,
+				k_clusters: Number($embeddingConfig.k_clusters),
+				batch_size: Number($embeddingConfig.batch_size),
+				video_fps: Number($embeddingConfig.video_fps),
+				video_max_frames: Number($embeddingConfig.video_max_frames),
+			};
+
 			await generateSelectiveEmbeddings(
 				Array.from($modifiedRows),
 				$columnConfig,
-				$embeddingConfig,
+				configToSend,
 			);
 		} catch (err) {
 			addNotification("error", "Re-embedding failed");

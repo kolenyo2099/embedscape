@@ -18,7 +18,7 @@ export interface ColumnConfig {
 
 export interface EmbeddingConfig {
 	mode: 'text' | 'multimodal';
-	source: 'text' | 'image' | 'video' | 'both';
+	source: 'text' | 'image' | 'video' | 'both' | 'mixed';
 	model: string;
 	image_model: string;
 	batch_size: number;
@@ -63,6 +63,10 @@ export const totalRows = writable<number>(0);
 export const editMode = writable<boolean>(false);
 export const modifiedRows = writable<Set<number>>(new Set());
 
+// Media upload mode tracking
+export const isMediaMode = writable<boolean>(false);
+export const mediaType = writable<'image' | 'video' | 'mixed' | null>(null);
+
 // Column configuration - use empty string for "None" to match select element behavior
 export const columnConfig = writable<ColumnConfig>({
 	text: '',
@@ -79,7 +83,7 @@ export const embeddingConfig = writable<EmbeddingConfig>({
 	model: 'all-MiniLM-L6-v2',
 	image_model: 'openai/clip-vit-base-patch32',
 	batch_size: 32,
-	k_clusters: 5,
+	k_clusters: 0,  // 0 = auto-detect optimal clusters
 	video_fps: 1.0,
 	video_max_frames: 30
 });
@@ -132,6 +136,8 @@ export async function clearData() {
 	allTags.set(new Map());
 	tagColors.set({});
 	searchResults.set([]);
+	isMediaMode.set(false);
+	mediaType.set(null);
 
 	// Clear backend
 	try {

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import Upload from "./Upload.svelte";
 	import Config from "./Config.svelte";
-	import Progress from "./Progress.svelte";
 	import Search from "./Search.svelte";
 	import Design from "./Design.svelte";
 	import { hasData, hasEmbeddings } from "$lib/stores/data";
@@ -21,11 +20,6 @@
 		<!-- Config Panel (shown after data loaded) -->
 		{#if $hasData && !$isProcessing && !$hasEmbeddings}
 			<Config />
-		{/if}
-
-		<!-- Progress Panel (shown during processing) -->
-		{#if $isProcessing}
-			<Progress />
 		{/if}
 
 		<!-- Design Panel (shown after embeddings) - above Search -->

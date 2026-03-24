@@ -15,13 +15,13 @@ class ColumnConfig(BaseModel):
 
 class EmbeddingConfig(BaseModel):
     mode: str = Field(default="text", description="'text' or 'multimodal'")
-    source: str = Field(default="text", description="'text', 'image', 'video', or 'both'")
+    source: str = Field(default="text", description="'text', 'image', 'video', 'both', or 'mixed'")
     model: str = Field(default="all-MiniLM-L6-v2", description="Model name for embeddings")
     image_model: str = Field(default="openai/clip-vit-base-patch32", description="CLIP model for images")
-    batch_size: int = Field(default=32, ge=1, le=128)
-    k_clusters: int = Field(default=5, ge=2, le=50)
-    video_fps: float = Field(default=1.0, ge=0.5, le=5.0)
-    video_max_frames: int = Field(default=30, ge=5, le=100)
+    batch_size: int = Field(default=32, ge=1, le=512)
+    k_clusters: int = Field(default=0, ge=0, le=50, description="Number of clusters (0 = auto-detect)")
+    video_fps: float = Field(default=1.0, gt=0.0)  # Must be positive, no upper limit
+    video_max_frames: int = Field(default=30, ge=1)  # Must be at least 1, no upper limit
 
 
 class ProcessRequest(BaseModel):

@@ -178,7 +178,7 @@ export interface ProcessRequest {
 	};
 	config: {
 		mode: 'text' | 'multimodal';
-		source: 'text' | 'image' | 'video' | 'both';
+		source: 'text' | 'image' | 'video' | 'both' | 'mixed';
 		model: string;
 		image_model: string;
 		batch_size: number;

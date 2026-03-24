@@ -26,7 +26,12 @@ async def search_text(request: SearchRequest):
 
     # Determine mode from config
     mode = config.mode if config else "text"
-    model_name = config.model if config and mode == "text" else "all-MiniLM-L6-v2"
+    if config and mode == "text":
+        model_name = config.model
+    elif config:
+        model_name = config.image_model
+    else:
+        model_name = "all-MiniLM-L6-v2"
 
     # Encode query
     query_embedding = encode_query_text(
